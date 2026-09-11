@@ -1,0 +1,20 @@
+{
+  "name": "carbonbridge-platform",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dependency-free contracts, deterministic demo fixtures and checks for CarbonBridge V2.",
+  "scripts": {
+    "generate:fixtures": "node scripts/generate-v2-fixtures.mjs",
+    "check:fixtures": "node scripts/validate-v2-fixtures.mjs",
+    "test:platform": "node --test tests/platform/v2-fixtures.test.mjs",
+    "check:platform": "node scripts/run-platform-checks.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs --profile demo --seed 26 --clock 2026-09-12T00:00:00Z",
+    "check:web": "npm run check --prefix apps/web && npm run build --prefix apps/web",
+    "test:api": "npm test --prefix apps/api",
+    "check:all": "npm run check:platform && npm run test:api && npm run check:web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

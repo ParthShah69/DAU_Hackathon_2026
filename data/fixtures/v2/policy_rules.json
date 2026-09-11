@@ -1,0 +1,193 @@
+[
+  {
+    "id": "b601f757-d242-5cf0-a779-f5d418eb0745",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "IN",
+    "mechanism": "carbon_market",
+    "rule_kind": "applicability",
+    "required_facts": [
+      "jurisdiction",
+      "mechanism",
+      "sector",
+      "reporting_period"
+    ],
+    "reviewed_result": "undetermined",
+    "effective_from": "2024-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "a57ad0eb-d6bc-5926-a993-4d3f4a3f14f5",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "9eed1ead-9040-57a9-82d8-3472d9b484f2",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "IN",
+    "mechanism": "carbon_credit",
+    "rule_kind": "claim_boundary",
+    "required_facts": [
+      "verified_project_evidence",
+      "mechanism"
+    ],
+    "reviewed_result": "not_evaluated",
+    "effective_from": "2024-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "a57ad0eb-d6bc-5926-a993-4d3f4a3f14f5",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "ded44701-e084-5c74-bf31-f49b820f059c",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "GLOBAL",
+    "mechanism": "co2_reuse",
+    "rule_kind": "claim_boundary",
+    "required_facts": [
+      "capture_record",
+      "transfer_record",
+      "use_record"
+    ],
+    "reviewed_result": "screening_only",
+    "effective_from": "2024-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "fec6c74c-00f1-5209-ae6c-c9930e962de1",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "5e170075-9e83-5310-bc7a-77185a6620e8",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "GLOBAL",
+    "mechanism": "climate_result",
+    "rule_kind": "evidence_requirement",
+    "required_facts": [
+      "functional_unit",
+      "system_boundary",
+      "comparison_case"
+    ],
+    "reviewed_result": "not_evaluated",
+    "effective_from": "2024-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "fec6c74c-00f1-5209-ae6c-c9930e962de1",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "93d095f4-7048-5325-802d-c5444c5dd288",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "EU",
+    "mechanism": "carbon_market",
+    "rule_kind": "applicability",
+    "required_facts": [
+      "jurisdiction",
+      "effective_rule"
+    ],
+    "reviewed_result": "source_stale",
+    "effective_from": "2023-01-01T00:00:00Z",
+    "effective_to": "2024-01-01T00:00:00Z",
+    "source_document_id": "fec6c74c-00f1-5209-ae6c-c9930e962de1",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "440aa138-a428-5fe1-be8e-8148f63faf54",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "US",
+    "mechanism": "emission_factor",
+    "rule_kind": "claim_boundary",
+    "required_facts": [
+      "source_category",
+      "operating_context"
+    ],
+    "reviewed_result": "screening_only",
+    "effective_from": "2024-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "d5169309-c455-5725-9bd7-a9965b6bde09",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "f7bba805-9538-55cd-864d-203e84953e25",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "IN",
+    "mechanism": "carbon_market",
+    "rule_kind": "applicability",
+    "required_facts": [
+      "sector_classification"
+    ],
+    "reviewed_result": "undetermined",
+    "effective_from": "2024-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "a57ad0eb-d6bc-5926-a993-4d3f4a3f14f5",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "8b145efa-abfa-594d-bdf6-d42abdc343d8",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "GLOBAL",
+    "mechanism": "evidence",
+    "rule_kind": "access",
+    "required_facts": [
+      "uploader",
+      "review_state"
+    ],
+    "reviewed_result": "review_required",
+    "effective_from": "2024-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "fec6c74c-00f1-5209-ae6c-c9930e962de1",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "aa87d9d9-5891-5dc8-8fcc-7cf655082c7e",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "IN",
+    "mechanism": "carbon_market",
+    "rule_kind": "applicability",
+    "required_facts": [
+      "as_of_date"
+    ],
+    "reviewed_result": "future_effective",
+    "effective_from": "2027-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "a57ad0eb-d6bc-5926-a993-4d3f4a3f14f5",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  },
+  {
+    "id": "86b14de2-4c97-5e47-a167-e889fc21fa77",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "GLOBAL",
+    "mechanism": "marketplace",
+    "rule_kind": "claim_boundary",
+    "required_facts": [
+      "delivery_receipt"
+    ],
+    "reviewed_result": "not_a_credit",
+    "effective_from": "2024-01-01T00:00:00Z",
+    "effective_to": null,
+    "source_document_id": "fec6c74c-00f1-5209-ae6c-c9930e962de1",
+    "reviewer_role": "policy_reviewer",
+    "source_class": "official_primary"
+  }
+]

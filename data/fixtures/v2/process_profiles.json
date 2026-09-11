@@ -1,0 +1,430 @@
+[
+  {
+    "id": "28e3f7ad-f6cd-563f-b687-b06b59e1e490",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "mineral-carbonation",
+    "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "title": "Mineral carbonation and concrete curing",
+    "sector": "construction_materials",
+    "submitted_text": "A kiln exhaust stream is cooled, filtered and sent through a capture skid before mineral curing.",
+    "steps": [
+      {
+        "order": 1,
+        "name": "kiln exhaust",
+        "inputs": [
+          "limestone feed"
+        ],
+        "outputs": [
+          "exhaust gas"
+        ],
+        "notes": "gas composition not yet measured"
+      },
+      {
+        "order": 2,
+        "name": "capture and drying",
+        "inputs": [
+          "exhaust gas",
+          "electricity"
+        ],
+        "outputs": [
+          "captured CO2 candidate",
+          "waste heat"
+        ]
+      },
+      {
+        "order": 3,
+        "name": "mineral curing",
+        "inputs": [
+          "captured CO2 candidate",
+          "aggregate"
+        ],
+        "outputs": [
+          "cured aggregate"
+        ]
+      }
+    ],
+    "possible_outputs": [
+      {
+        "material": "captured CO2",
+        "kind": "material",
+        "tradability_status": "candidate",
+        "evidence_needed": [
+          "capture measurement",
+          "purity basis",
+          "safe handling"
+        ]
+      },
+      {
+        "material": "waste heat",
+        "kind": "energy",
+        "tradability_status": "opportunity",
+        "evidence_needed": [
+          "temperature profile",
+          "available cadence"
+        ]
+      },
+      {
+        "material": "cured aggregate",
+        "kind": "product",
+        "tradability_status": "internal_use",
+        "evidence_needed": [
+          "product specification"
+        ]
+      }
+    ],
+    "capture_status": "partially_measured",
+    "external_sale_possible": true,
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "c3696cc3-999f-5034-8688-7422d9084418",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "greenhouse-enrichment",
+    "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "title": "Greenhouse CO2 enrichment",
+    "sector": "controlled_agriculture",
+    "submitted_text": "A food-grade CO2 delivery system enriches a greenhouse during daylight growing cycles.",
+    "steps": [
+      {
+        "order": 1,
+        "name": "storage",
+        "inputs": [
+          "bulk CO2"
+        ],
+        "outputs": [
+          "liquid CO2 inventory"
+        ]
+      },
+      {
+        "order": 2,
+        "name": "vaporization",
+        "inputs": [
+          "liquid CO2",
+          "heat"
+        ],
+        "outputs": [
+          "gaseous CO2"
+        ]
+      },
+      {
+        "order": 3,
+        "name": "enrichment",
+        "inputs": [
+          "gaseous CO2"
+        ],
+        "outputs": [
+          "crop biomass"
+        ]
+      }
+    ],
+    "possible_outputs": [
+      {
+        "material": "food-grade CO2",
+        "kind": "material",
+        "tradability_status": "candidate",
+        "evidence_needed": [
+          "grade certificate",
+          "storage record"
+        ]
+      },
+      {
+        "material": "crop biomass",
+        "kind": "product",
+        "tradability_status": "internal_use",
+        "evidence_needed": [
+          "harvest record"
+        ]
+      }
+    ],
+    "capture_status": "not_applicable",
+    "external_sale_possible": false,
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "f01e19d6-61d9-5a1e-93ab-46068da77445",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "algae-cultivation",
+    "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "title": "Algae cultivation with an industrial gas stream",
+    "sector": "bioprocessing",
+    "submitted_text": "An algae pond receives a diluted gas stream after cooling. Biomass is harvested weekly.",
+    "steps": [
+      {
+        "order": 1,
+        "name": "gas cooling",
+        "inputs": [
+          "industrial gas stream"
+        ],
+        "outputs": [
+          "cooled gas"
+        ]
+      },
+      {
+        "order": 2,
+        "name": "pond dosing",
+        "inputs": [
+          "cooled gas",
+          "water",
+          "nutrients"
+        ],
+        "outputs": [
+          "algae biomass",
+          "oxygen"
+        ]
+      },
+      {
+        "order": 3,
+        "name": "harvest",
+        "inputs": [
+          "algae biomass"
+        ],
+        "outputs": [
+          "wet biomass",
+          "process water"
+        ]
+      }
+    ],
+    "possible_outputs": [
+      {
+        "material": "wet algae biomass",
+        "kind": "byproduct",
+        "tradability_status": "opportunity",
+        "evidence_needed": [
+          "moisture",
+          "contaminant screen"
+        ]
+      },
+      {
+        "material": "oxygen",
+        "kind": "byproduct",
+        "tradability_status": "hypothesis",
+        "evidence_needed": [
+          "concentration",
+          "collection method"
+        ]
+      },
+      {
+        "material": "CO2 stream",
+        "kind": "material",
+        "tradability_status": "not_verified",
+        "evidence_needed": [
+          "capture and composition"
+        ]
+      }
+    ],
+    "capture_status": "unmeasured",
+    "external_sale_possible": true,
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "6f578f3d-752c-5ead-98b9-07fc21b842fe",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "methanol-synthesis",
+    "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "title": "Methanol synthesis from captured CO2",
+    "sector": "chemicals",
+    "submitted_text": "Captured CO2 and hydrogen react in a synthesis loop. The gas is consumed in the loop.",
+    "steps": [
+      {
+        "order": 1,
+        "name": "capture conditioning",
+        "inputs": [
+          "captured CO2"
+        ],
+        "outputs": [
+          "conditioned CO2"
+        ]
+      },
+      {
+        "order": 2,
+        "name": "synthesis loop",
+        "inputs": [
+          "conditioned CO2",
+          "hydrogen"
+        ],
+        "outputs": [
+          "methanol",
+          "water"
+        ]
+      },
+      {
+        "order": 3,
+        "name": "distillation",
+        "inputs": [
+          "crude methanol"
+        ],
+        "outputs": [
+          "methanol product",
+          "stillage"
+        ]
+      }
+    ],
+    "possible_outputs": [
+      {
+        "material": "methanol",
+        "kind": "product",
+        "tradability_status": "internal_product",
+        "evidence_needed": [
+          "product grade"
+        ]
+      },
+      {
+        "material": "stillage",
+        "kind": "byproduct",
+        "tradability_status": "opportunity",
+        "evidence_needed": [
+          "composition",
+          "safe handling"
+        ]
+      }
+    ],
+    "capture_status": "measured_internal_use",
+    "external_sale_possible": false,
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "1a886bec-fee9-57cc-a9d4-a6340f2a17e8",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "urea-production",
+    "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "title": "Urea production with internal CO2 reuse",
+    "sector": "fertilizer",
+    "submitted_text": "The plant sends captured CO2 to the urea reactor. No surplus stream has been measured.",
+    "steps": [
+      {
+        "order": 1,
+        "name": "capture",
+        "inputs": [
+          "process exhaust"
+        ],
+        "outputs": [
+          "captured CO2"
+        ]
+      },
+      {
+        "order": 2,
+        "name": "urea reaction",
+        "inputs": [
+          "captured CO2",
+          "ammonia"
+        ],
+        "outputs": [
+          "urea"
+        ]
+      },
+      {
+        "order": 3,
+        "name": "granulation",
+        "inputs": [
+          "urea melt"
+        ],
+        "outputs": [
+          "granules",
+          "dust"
+        ]
+      }
+    ],
+    "possible_outputs": [
+      {
+        "material": "urea",
+        "kind": "product",
+        "tradability_status": "internal_product",
+        "evidence_needed": [
+          "product specification"
+        ]
+      },
+      {
+        "material": "granulation dust",
+        "kind": "byproduct",
+        "tradability_status": "candidate",
+        "evidence_needed": [
+          "composition",
+          "collection record"
+        ]
+      }
+    ],
+    "capture_status": "measured_internal_use",
+    "external_sale_possible": false,
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "9547810b-bfdb-586d-b94d-b582629caca9",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "food-fermentation",
+    "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "title": "Food and beverage fermentation",
+    "sector": "food_beverage",
+    "submitted_text": "Fermentation releases a gas stream that is vented after separation. We do not yet know its purity or rate.",
+    "steps": [
+      {
+        "order": 1,
+        "name": "fermentation",
+        "inputs": [
+          "sugar syrup",
+          "yeast"
+        ],
+        "outputs": [
+          "beverage base",
+          "gas stream"
+        ]
+      },
+      {
+        "order": 2,
+        "name": "separation",
+        "inputs": [
+          "gas stream"
+        ],
+        "outputs": [
+          "CO2 candidate",
+          "uncondensed gas"
+        ]
+      },
+      {
+        "order": 3,
+        "name": "venting",
+        "inputs": [
+          "CO2 candidate"
+        ],
+        "outputs": [
+          "released gas"
+        ]
+      }
+    ],
+    "possible_outputs": [
+      {
+        "material": "captured CO2",
+        "kind": "material",
+        "tradability_status": "hypothesis",
+        "evidence_needed": [
+          "capture equipment",
+          "measurement method",
+          "food-grade certificate"
+        ]
+      },
+      {
+        "material": "spent yeast",
+        "kind": "byproduct",
+        "tradability_status": "opportunity",
+        "evidence_needed": [
+          "moisture",
+          "contaminant screen"
+        ]
+      }
+    ],
+    "capture_status": "emitted_not_captured",
+    "external_sale_possible": true,
+    "source_class": "synthetic_demo"
+  }
+]

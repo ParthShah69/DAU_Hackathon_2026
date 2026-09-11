@@ -1,0 +1,33 @@
+name: CarbonBridge platform checks
+
+on:
+  push:
+    paths:
+      - 'contracts/**'
+      - 'data/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'package.json'
+      - '.github/workflows/platform-checks.yml'
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - 'data/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'package.json'
+      - '.github/workflows/platform-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run check:platform

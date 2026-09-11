@@ -1,0 +1,67 @@
+[
+  {
+    "id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "northstar-bioenergy",
+    "display_name": "NorthStar Bioenergy",
+    "kind": "supplier",
+    "country": "IN",
+    "city": "Pune",
+    "source_class": "synthetic_demo",
+    "public_profile": true
+  },
+  {
+    "id": "c2082817-78be-5dc6-b3b1-a0fac95c3380",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "greengrow-labs",
+    "display_name": "GreenGrow Labs",
+    "kind": "buyer",
+    "country": "IN",
+    "city": "Nashik",
+    "source_class": "synthetic_demo",
+    "public_profile": true
+  },
+  {
+    "id": "cf7b1333-24e6-5013-b355-32a851ebc08a",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "terrabuild-materials",
+    "display_name": "TerraBuild Materials",
+    "kind": "buyer",
+    "country": "IN",
+    "city": "Mumbai",
+    "source_class": "synthetic_demo",
+    "public_profile": true
+  },
+  {
+    "id": "32d9e671-c532-5855-8fa0-36f9e911fcdd",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "clean-air-foundation",
+    "display_name": "Clean Air Foundation",
+    "kind": "ngo",
+    "country": "IN",
+    "city": "Pune",
+    "source_class": "synthetic_demo",
+    "public_profile": true
+  },
+  {
+    "id": "6ab6fe7a-9b24-5276-95aa-e4e98ee5cbf5",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "slug": "carbonbridge-operations",
+    "display_name": "CarbonBridge Operations",
+    "kind": "operator",
+    "country": "IN",
+    "city": "Ahmedabad",
+    "source_class": "synthetic_demo",
+    "public_profile": false
+  }
+]

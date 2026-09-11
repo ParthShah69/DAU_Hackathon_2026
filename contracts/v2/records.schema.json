@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carbonbridge.example/contracts/v2/records.schema.json",
+  "title": "CarbonBridge V2 fixture record definitions",
+  "description": "Definitions are referenced by the fixture validator for the corresponding JSON or JSONL collection.",
+  "$defs": {
+    "record": {
+      "type": "object",
+      "required": ["id", "schema_version", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "schema_version": { "const": "2.0" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "source_class": { "type": "string", "enum": ["synthetic_demo", "synthetic_hypothesis", "official_primary", "technical_primary", "organization_provided"] }
+      },
+      "additionalProperties": true
+    },
+    "quantity": {
+      "type": "object",
+      "required": ["value", "unit", "basis"],
+      "properties": {
+        "value": { "type": ["string", "null"], "pattern": "^-?[0-9]+(\\.[0-9]+)?$" },
+        "unit": { "type": "string" },
+        "basis": { "type": "string", "enum": ["wet", "dry", "as_received", "standardized", "per_tonne"] },
+        "period": { "type": ["string", "null"] },
+        "uncertainty": { "type": ["object", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "money": {
+      "type": "object",
+      "required": ["amount_minor", "currency", "basis"],
+      "properties": {
+        "amount_minor": { "type": "integer", "minimum": 0 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "basis": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "organization": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["slug", "display_name", "kind", "country", "city"] }]
+    },
+    "user": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["email", "organization_id", "roles"] }]
+    },
+    "process_profile": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["slug", "organization_id", "title", "sector", "steps", "possible_outputs", "capture_status"] }]
+    },
+    "process_scenario": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["process_profile_id", "submitted_text", "expected_discovery_status", "expected_missing_fields"] }]
+    },
+    "buyer_specification": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["organization_id", "title", "material", "quantity", "quality_constraints", "delivery"] }]
+    },
+    "treatment_pathway": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["material", "method", "description", "required_evidence", "status"] }]
+    },
+    "knowledge_source": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["publisher", "title", "source_class", "source_uri", "access_scope", "trust_status"] }]
+    },
+    "knowledge_document": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["source_id", "title", "source_uri", "source_class", "access_scope", "effective_from", "review_state", "checksum_sha256", "text"] }]
+    },
+    "knowledge_chunk": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["document_id", "source_id", "ordinal", "locator", "text", "access_scope"] }]
+    },
+    "policy_rule": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["jurisdiction", "mechanism", "rule_kind", "required_facts", "reviewed_result", "effective_from", "source_document_id"] }]
+    },
+    "policy_scenario": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["jurisdiction", "mechanism", "as_of_date", "facts", "policy_rule_id", "expected_result"] }]
+    },
+    "price_observation": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["observation_type", "material", "geography", "amount_minor_per_tonne", "currency", "basis", "freshness", "observed_at", "is_guaranteed_quote"] }]
+    },
+    "listing": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["organization_id", "material", "status", "version", "quantity_available", "quality", "price"] }]
+    },
+    "buyer_requirement_ref": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "marketplace_snapshot": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["as_of", "listings", "requirements", "requests", "ranking_policy_version", "cost_formula_version"] }]
+    },
+    "conversation_scenario": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["persona", "organization_id", "prompt", "expected_intent", "expected_specialist", "expected_tools", "expected_action_state", "forbidden_tools"] }]
+    },
+    "eval_case": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["category", "case_number", "persona", "tenant_key", "prompt", "expected_intent", "expected_tools", "forbidden_tools", "expected_action_state", "must_not_claim"] }]
+    },
+    "fixture_manifest": {
+      "allOf": [{ "$ref": "#/$defs/record" }, { "required": ["dataset", "dataset_version", "fixture_seed", "fixture_clock", "files", "checksums", "provenance_labels"] }]
+    }
+  }
+}

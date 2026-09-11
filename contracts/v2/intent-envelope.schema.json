@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carbonbridge.example/contracts/v2/intent-envelope.schema.json",
+  "title": "CarbonBridge assistant intent envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "intent", "confidence", "actor_context", "entity_refs", "proposed_tool_calls", "safety"],
+  "properties": {
+    "schema_version": { "const": "2.0" },
+    "intent": {
+      "type": "string",
+      "enum": ["process_discovery", "evidence_guidance", "market_search", "comparison", "seller_listing", "buyer_requirement", "supply_request", "request_timeline", "policy_screening", "analytics_report", "notification_preference", "purchase_plan", "admin_review", "clarification", "unsupported"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "actor_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "organization_id", "roles"],
+      "properties": {
+        "user_id": { "type": "string", "format": "uuid" },
+        "organization_id": { "type": "string", "format": "uuid" },
+        "roles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "entity_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entity_type", "entity_id", "scope"],
+        "properties": {
+          "entity_type": { "type": "string" },
+          "entity_id": { "type": "string" },
+          "scope": { "type": "string", "enum": ["tenant", "shared", "public"] },
+          "version": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "proposed_tool_calls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "arguments"],
+        "properties": {
+          "tool": { "type": "string" },
+          "arguments": { "type": "object" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_class", "requires_confirmation", "missing_facts"],
+      "properties": {
+        "risk_class": { "type": "string", "enum": ["read", "private_draft", "reversible", "externally_visible", "commercial", "prohibited"] },
+        "requires_confirmation": { "type": "boolean" },
+        "missing_facts": { "type": "array", "items": { "type": "string" } },
+        "prompt_injection_detected": { "type": "boolean" }
+      }
+    }
+  }
+}

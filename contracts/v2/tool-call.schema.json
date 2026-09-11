@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carbonbridge.example/contracts/v2/tool-call.schema.json",
+  "title": "CarbonBridge specialist tool call",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "call_id", "tool", "arguments", "risk_class", "execution_mode"],
+  "properties": {
+    "schema_version": { "const": "2.0" },
+    "call_id": { "type": "string", "format": "uuid" },
+    "tool": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$" },
+    "arguments": { "type": "object" },
+    "risk_class": { "type": "string", "enum": ["read", "private_draft", "reversible", "externally_visible", "commercial", "prohibited"] },
+    "execution_mode": { "type": "string", "enum": ["prepare", "execute_approved", "read"] },
+    "actor_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "organization_id"],
+      "properties": {
+        "user_id": { "type": "string", "format": "uuid" },
+        "organization_id": { "type": "string", "format": "uuid" },
+        "roles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "idempotency_key": { "type": ["string", "null"], "maxLength": 200 },
+    "expected_versions": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 } }
+  }
+}

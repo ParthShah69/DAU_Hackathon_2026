@@ -1,0 +1,142 @@
+[
+  {
+    "id": "16821406-1404-5638-a256-a29f3e7b4e27",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "IN",
+    "mechanism": "carbon_market",
+    "as_of_date": "2026-09-12",
+    "facts": {
+      "jurisdiction": "IN",
+      "mechanism": "carbon_market",
+      "sector": "cement",
+      "reporting_period": "2026"
+    },
+    "policy_rule_id": "b601f757-d242-5cf0-a779-f5d418eb0745",
+    "expected_result": "in_scope",
+    "source_class": "synthetic_demo",
+    "reviewer_role": "policy_reviewer"
+  },
+  {
+    "id": "9efd0ec8-7ab5-5bba-9024-303a4220fde4",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "IN",
+    "mechanism": "carbon_market",
+    "as_of_date": "2026-09-12",
+    "facts": {
+      "jurisdiction": "IN",
+      "mechanism": "carbon_market",
+      "reporting_period": "2026"
+    },
+    "policy_rule_id": "f7bba805-9538-55cd-864d-203e84953e25",
+    "expected_result": "undetermined",
+    "source_class": "synthetic_demo",
+    "reviewer_role": "policy_reviewer"
+  },
+  {
+    "id": "3dea1419-0975-5c86-b5f1-acf49184ba14",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "IN",
+    "mechanism": "carbon_credit",
+    "as_of_date": "2026-09-12",
+    "facts": {
+      "jurisdiction": "IN",
+      "mechanism": "carbon_credit"
+    },
+    "policy_rule_id": "9eed1ead-9040-57a9-82d8-3472d9b484f2",
+    "expected_result": "not_evaluated",
+    "source_class": "synthetic_demo",
+    "reviewer_role": "policy_reviewer"
+  },
+  {
+    "id": "eb0464b7-0248-513b-b84c-25abb86551e9",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "GLOBAL",
+    "mechanism": "co2_reuse",
+    "as_of_date": "2026-09-12",
+    "facts": {
+      "capture_record": true,
+      "transfer_record": true,
+      "use_record": true
+    },
+    "policy_rule_id": "ded44701-e084-5c74-bf31-f49b820f059c",
+    "expected_result": "screening_only",
+    "source_class": "synthetic_demo",
+    "reviewer_role": "policy_reviewer"
+  },
+  {
+    "id": "5c791fad-20e0-5466-abff-f430fd2dee2c",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "GLOBAL",
+    "mechanism": "co2_reuse",
+    "as_of_date": "2026-09-12",
+    "facts": {
+      "capture_record": true,
+      "transfer_record": true
+    },
+    "policy_rule_id": "ded44701-e084-5c74-bf31-f49b820f059c",
+    "expected_result": "undetermined",
+    "source_class": "synthetic_demo",
+    "reviewer_role": "policy_reviewer"
+  },
+  {
+    "id": "4434857f-3532-5c9b-86e2-73171b660180",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "EU",
+    "mechanism": "carbon_market",
+    "as_of_date": "2023-06-01",
+    "facts": {
+      "jurisdiction": "EU",
+      "as_of_date": "2023-06-01"
+    },
+    "policy_rule_id": "93d095f4-7048-5325-802d-c5444c5dd288",
+    "expected_result": "source_stale",
+    "source_class": "synthetic_demo",
+    "reviewer_role": "policy_reviewer"
+  },
+  {
+    "id": "6ab82209-4bbd-52de-b3bf-74712e1d60ef",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "US",
+    "mechanism": "emission_factor",
+    "as_of_date": "2026-09-12",
+    "facts": {
+      "source_category": "stationary_combustion",
+      "operating_context": "demo"
+    },
+    "policy_rule_id": "440aa138-a428-5fe1-be8e-8148f63faf54",
+    "expected_result": "screening_only",
+    "source_class": "synthetic_demo",
+    "reviewer_role": "policy_reviewer"
+  },
+  {
+    "id": "0d5d8c30-4fbe-565a-8fb9-d6b28525a16f",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "jurisdiction": "IN",
+    "mechanism": "carbon_market",
+    "as_of_date": "2026-01-01",
+    "facts": {
+      "jurisdiction": "IN",
+      "as_of_date": "2026-01-01"
+    },
+    "policy_rule_id": "aa87d9d9-5891-5dc8-8fcc-7cf655082c7e",
+    "expected_result": "future_effective",
+    "source_class": "synthetic_demo",
+    "reviewer_role": "policy_reviewer"
+  }
+]

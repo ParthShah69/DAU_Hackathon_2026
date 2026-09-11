@@ -1,0 +1,20 @@
+# Local dependencies and generated previews
+node_modules/
+apps/web/node_modules/
+apps/web/dist/
+
+# Local runtime state and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Agent scratch and test output
+tmp/
+coverage/
+*.log
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/

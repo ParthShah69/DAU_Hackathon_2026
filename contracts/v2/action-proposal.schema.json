@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://carbonbridge.example/contracts/v2/action-proposal.schema.json",
+  "title": "CarbonBridge typed action proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "workflow_id", "action_type", "risk_class", "target", "diff", "expected_version", "expires_at", "requires_explicit_confirmation", "status"],
+  "properties": {
+    "schema_version": { "const": "2.0" },
+    "id": { "type": "string", "format": "uuid" },
+    "workflow_id": { "type": "string", "format": "uuid" },
+    "action_type": { "type": "string", "enum": ["save_process", "save_evidence", "create_listing_draft", "update_listing", "publish_listing", "create_requirement", "prepare_supply_request", "submit_supply_request", "accept_supply_request", "create_report", "set_notification"] },
+    "risk_class": { "type": "string", "enum": ["private_draft", "reversible", "externally_visible", "commercial"] },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_type", "entity_id", "organization_id"],
+      "properties": {
+        "entity_type": { "type": "string" },
+        "entity_id": { "type": "string" },
+        "organization_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "diff": { "type": "object" },
+    "expected_version": { "type": "integer", "minimum": 1 },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "requires_explicit_confirmation": { "type": "boolean", "const": true },
+    "status": { "type": "string", "enum": ["prepared", "approved", "executing", "committed", "rejected", "expired", "conflict", "failed"] },
+    "source_message_id": { "type": ["string", "null"], "format": "uuid" },
+    "payload_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

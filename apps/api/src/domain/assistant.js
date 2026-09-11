@@ -1,0 +1,488 @@
+const { createHash, randomUUID } = require('node:crypto');
+const { DomainError, requireValue } = require('./errors');
+const { discoverProcess } = require('./process-discovery');
+const { runMatch, getMatchRun } = require('./matching');
+const { createRequirement } = require('./requirements');
+
+const ASSISTANT_VERSION = 'carbonbridge-orchestrator-demo-v1';
+const MAX_MESSAGE_LENGTH = 12000;
+
+function hashPayload(payload) {
+  return createHash('sha256').update(JSON.stringify(sortKeys(payload))).digest('hex');
+}
+
+function sortKeys(value) {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortKeys(value[key])]));
+  return value;
+}
+
+function createConversation(store, { actorUserId, actorOrganizationId, title = 'CarbonBridge assistant' }) {
+  const now = store.now();
+  return store.insert('conversations', {
+    id: `conversation-${randomUUID()}`,
+    userId: actorUserId,
+    organizationId: actorOrganizationId,
+    title: String(title).slice(0, 120),
+    state: 'active',
+    context: {
+      activeProcessId: null,
+      activeDiscoveryCandidateIds: [],
+      activeRequirementId: null,
+      activeMatchRunId: null,
+      activeMatchResultIds: [],
+      activeRequestId: null,
+      pendingActionId: null
+    },
+    createdAt: now,
+    updatedAt: now,
+    version: 1
+  });
+}
+
+function getConversation(store, conversationId, actorOrganizationId) {
+  const conversation = store.findOne('conversations', (item) => item.id === conversationId);
+  if (!conversation) throw new DomainError('NOT_FOUND', `Conversation ${conversationId} was not found`, 404);
+  if (conversation.organizationId !== actorOrganizationId) throw new DomainError('FORBIDDEN', 'Conversation is outside the active organization', 403);
+  return conversation;
+}
+
+function addMessage(store, conversation, role, content, metadata = {}) {
+  return store.insert('messages', {
+    id: `message-${randomUUID()}`,
+    conversationId: conversation.id,
+    organizationId: conversation.organizationId,
+    role,
+    content,
+    metadata,
+    createdAt: store.now()
+  });
+}
+
+function detectIntent(text) {
+  const normalized = text.toLowerCase();
+  if (/^(yes|y|confirm|approve|approved|go ahead|do it|proceed|okay|ok)\b/.test(normalized)) return 'confirm_action';
+  if (/\b(cancel|stop|never mind|discard)\b/.test(normalized)) return 'cancel_action';
+  if (/(compare|side by side|which (one|option)|best deal|cheapest)/.test(normalized)) return 'compare_options';
+  if (/\b(find|search|match|source|available)\b/.test(normalized) && /\b(co2|carbon|tonne|ton|requirement|listing|option|supplier|buyer|material|deal|supply)\b/.test(normalized)) return 'find_matches';
+  if (/(accept|decline|reject).*\brequest\b/.test(normalized)) return 'manage_request';
+  if (/(\brequest\b|\breserve\b|send.*supplier|\bbuy\b|\bpurchase\b)/.test(normalized)) return 'prepare_request';
+  if (/(requirement|we need|looking for|need \d|buying)/.test(normalized)) return 'create_requirement';
+  if (/(list|publish|sell|marketplace|offer|draft)/.test(normalized) && /(process|output|co2|carbon|stream|material|listing)/.test(normalized)) return 'prepare_listing';
+  if (/(process|produce|production|manufactur|generate|byproduct|waste|output|what can i sell|valuable)/.test(normalized)) return 'discover_process_outputs';
+  if (/(explain|why|how|help|status|what did)/.test(normalized)) return 'explain_context';
+  return 'clarify';
+}
+
+function parseQuantity(text) {
+  const match = text.match(/(?:need|quantity|for|buy|purchase)?\s*(\d+(?:\.\d+)?)\s*(?:metric\s*)?(?:tonnes?|tons?|t)\b/i);
+  return match ? Number(match[1]) : null;
+}
+
+function parsePurity(text) {
+  const match = text.match(/(?:purity|minimum|min)\D{0,16}(\d+(?:\.\d+)?)\s*%/i);
+  return match ? Number(match[1]) : null;
+}
+
+function parseBudget(text) {
+  const match = text.match(/(?:budget|under|below|max(?:imum)?)\D{0,16}(?:₹|inr\s*)?([\d,]+(?:\.\d+)?)\s*(?:\/\s*t|per\s*(?:tonne|ton))?/i);
+  return match ? Math.round(Number(match[1].replace(/,/g, '')) * 100) : null;
+}
+
+function parseDistance(text) {
+  const match = text.match(/(?:within|distance|max(?:imum)?)\D{0,16}(\d+(?:\.\d+)?)\s*km/i);
+  return match ? Number(match[1]) : null;
+}
+
+function parseForm(text) {
+  const normalized = text.toLowerCase();
+  if (/\bliquid\b/.test(normalized)) return ['liquid'];
+  if (/\bsolid\b|powder/.test(normalized)) return ['solid'];
+  return ['gas'];
+}
+
+function parsePeriod(text) {
+  const month = text.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s*(20\d{2})?\b/i);
+  if (!month) return null;
+  const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  const index = months.indexOf(month[1].toLowerCase());
+  const year = Number(month[2] || 2026);
+  const start = `${year}-${String(index + 1).padStart(2, '0')}-01`;
+  const endDate = new Date(Date.UTC(year, index + 1, 0));
+  const end = `${year}-${String(index + 1).padStart(2, '0')}-${String(endDate.getUTCDate()).padStart(2, '0')}`;
+  return { start, end };
+}
+
+function latestOwned(store, collection, field, value) {
+  return store.findMany(collection, (item) => item[field] === value).sort((left, right) => String(right.updatedAt || right.createdAt || '').localeCompare(String(left.updatedAt || left.createdAt || '')))[0] || null;
+}
+
+function resolveRequirement(store, conversation, actorOrganizationId, text) {
+  const explicit = [...store.requirements].reverse().find((item) => text.includes(item.id));
+  if (explicit && explicit.organizationId === actorOrganizationId) return explicit;
+  if (conversation.context.activeRequirementId) {
+    const active = store.findOne('requirements', (item) => item.id === conversation.context.activeRequirementId && item.organizationId === actorOrganizationId);
+    if (active) return active;
+  }
+  return latestOwned(store, 'requirements', 'organizationId', actorOrganizationId);
+}
+
+function resolveMatchResult(store, conversation, text) {
+  const results = conversation.context.activeMatchResultIds
+    .map((id) => store.findOne('matchResults', (item) => item.id === id))
+    .filter(Boolean);
+  const explicit = results.find((result) => text.includes(result.id) || text.includes(result.streamId));
+  if (explicit) return explicit;
+  const ordinal = text.match(/\b(first|second|third|1st|2nd|3rd)\b/i);
+  if (ordinal) {
+    const index = { first: 0, '1st': 0, second: 1, '2nd': 1, third: 2, '3rd': 2 }[ordinal[1].toLowerCase()];
+    if (results[index]) return results[index];
+  }
+  return results.find((result) => result.status === 'compatible') || results[0] || null;
+}
+
+function createAction(store, { conversation, actorUserId, operation, payload, riskClass = 'externally_visible', summary, now = new Date() }) {
+  const action = store.insert('actions', {
+    id: `action-${randomUUID()}`,
+    organizationId: conversation.organizationId,
+    actorUserId,
+    conversationId: conversation.id,
+    operation,
+    payload,
+    payloadHash: hashPayload(payload),
+    riskClass,
+    status: 'awaiting_approval',
+    requiresApproval: true,
+    summary,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+    result: null,
+    error: null,
+    version: 1
+  });
+  conversation.context.pendingActionId = action.id;
+  conversation.updatedAt = now.toISOString();
+  return action;
+}
+
+function actionCard(action) {
+  return {
+    type: 'action_preview',
+    actionId: action.id,
+    operation: action.operation,
+    riskClass: action.riskClass,
+    summary: action.summary,
+    payload: action.payload,
+    expiresAt: action.expiresAt,
+    requiresApproval: action.requiresApproval,
+    instruction: 'Reply with “confirm” to execute this exact action, or “cancel” to discard it.'
+  };
+}
+
+function appendAudit(store, { actorUserId, organizationId, action, event, before = null, after = null }) {
+  store.insert('auditEvents', {
+    id: `audit-${randomUUID()}`,
+    actorUserId,
+    organizationId,
+    actionId: action.id,
+    event,
+    before,
+    after,
+    createdAt: store.now()
+  });
+}
+
+function executeAction(store, action, { actorUserId, actorOrganizationId }) {
+  if (action.actorUserId !== actorUserId || action.organizationId !== actorOrganizationId) throw new DomainError('FORBIDDEN', 'Only the action creator can approve this action', 403);
+  if (action.status === 'succeeded') return structuredClone(action);
+  if (action.status !== 'awaiting_approval') throw new DomainError('ACTION_NOT_APPROVABLE', `Action is ${action.status}`);
+  if (new Date(action.expiresAt) <= new Date()) {
+    store.replace('actions', action.id, { status: 'expired', version: action.version + 1 });
+    throw new DomainError('ACTION_EXPIRED', 'This action preview expired; prepare a fresh preview');
+  }
+
+  const before = structuredClone(action);
+  try {
+    let result;
+    if (action.operation === 'create_requirement') {
+      result = createRequirement(store, { actorOrganizationId, payload: action.payload, now: new Date() });
+    } else if (action.operation === 'create_listing_draft') {
+      const process = store.findOne('processes', (item) => item.id === action.payload.processId && item.organizationId === actorOrganizationId);
+      const candidate = store.findOne('discoveryCandidates', (item) => item.id === action.payload.discoveryCandidateId && item.organizationId === actorOrganizationId);
+      if (!process || !candidate) throw new DomainError('NOT_FOUND', 'Discovery opportunity is no longer available', 404);
+      result = store.insert('listingDrafts', {
+        id: `listing-draft-${randomUUID()}`,
+        organizationId: actorOrganizationId,
+        processId: process.id,
+        discoveryCandidateId: candidate.id,
+        material: candidate.material,
+        title: candidate.label,
+        state: 'draft',
+        quantityTonnes: null,
+        quality: null,
+        evidenceStatus: 'missing',
+        canPublish: false,
+        createdAt: store.now(),
+        updatedAt: store.now(),
+        version: 1
+      });
+    } else if (action.operation === 'submit_supply_request') {
+      const requirement = store.findOne('requirements', (item) => item.id === action.payload.requirementId && item.organizationId === actorOrganizationId);
+      if (!requirement) throw new DomainError('FORBIDDEN', 'Requirement is outside the active organization', 403);
+      const current = runMatch(store, { requirementId: requirement.id, actorOrganizationId, now: new Date() });
+      const selectedResult = current.results.find((item) => item.streamId === action.payload.streamId);
+      if (!selectedResult || selectedResult.status !== 'compatible') throw new DomainError('MATCH_STALE', 'The selected option is no longer compatible; refresh matches');
+      const period = store.findOne('supplyPeriods', (item) => item.id === selectedResult.supplyPeriodId);
+      const request = store.insert('supplyRequests', {
+        id: `request-${randomUUID()}`,
+        buyerOrganizationId: actorOrganizationId,
+        supplierOrganizationId: selectedResult.supplierOrganizationId,
+        requirementId: requirement.id,
+        streamId: selectedResult.streamId,
+        supplyPeriodId: selectedResult.supplyPeriodId,
+        matchResultId: selectedResult.id,
+        quantityTonnes: requirement.quantityTonnes,
+        termsSnapshot: { economics: selectedResult.economics, requirement: structuredClone(requirement) },
+        status: 'pending_supplier',
+        version: 1,
+        createdAt: store.now(),
+        updatedAt: store.now()
+      });
+      store.insert('requestEvents', {
+        id: `request-event-${randomUUID()}`,
+        requestId: request.id,
+        actorUserId,
+        event: 'submitted',
+        createdAt: store.now()
+      });
+      result = request;
+    } else if (action.operation === 'accept_supply_request') {
+      const request = store.findOne('supplyRequests', (item) => item.id === action.payload.requestId && item.supplierOrganizationId === actorOrganizationId);
+      if (!request) throw new DomainError('FORBIDDEN', 'Request is outside the active supplier organization', 403);
+      if (request.status !== 'pending_supplier') throw new DomainError('REQUEST_NOT_PENDING', `Request is ${request.status}`);
+      const period = store.findOne('supplyPeriods', (item) => item.id === request.supplyPeriodId);
+      if (!period) throw new DomainError('NOT_FOUND', 'Supply period is no longer available', 404);
+      const remaining = Number(period.totalTonnes) - Number(period.reservedTonnes);
+      if (remaining < Number(request.quantityTonnes)) throw new DomainError('INSUFFICIENT_AVAILABILITY', 'The supply period no longer has enough available quantity');
+      const reservation = store.insert('reservations', {
+        id: `reservation-${randomUUID()}`,
+        requestId: request.id,
+        supplyPeriodId: period.id,
+        quantityTonnes: request.quantityTonnes,
+        status: 'active',
+        createdAt: store.now()
+      });
+      store.replace('supplyPeriods', period.id, { reservedTonnes: String(Number(period.reservedTonnes) + Number(request.quantityTonnes)) });
+      store.replace('supplyRequests', request.id, { status: 'accepted', reservationId: reservation.id, version: request.version + 1, updatedAt: store.now() });
+      store.insert('requestEvents', { id: `request-event-${randomUUID()}`, requestId: request.id, actorUserId, event: 'accepted', createdAt: store.now() });
+      result = { requestId: request.id, reservation };
+    } else {
+      throw new DomainError('UNSUPPORTED_ACTION', `Operation ${action.operation} is not supported by this prototype`);
+    }
+    const updated = store.replace('actions', action.id, { status: 'succeeded', result, error: null, version: action.version + 1, completedAt: store.now() });
+    appendAudit(store, { actorUserId, organizationId: actorOrganizationId, action, event: 'succeeded', before, after: updated });
+    return updated;
+  } catch (error) {
+    const code = error.code || 'ACTION_FAILED';
+    const failed = store.replace('actions', action.id, { status: 'failed', error: { code, message: error.message }, version: action.version + 1 });
+    appendAudit(store, { actorUserId, organizationId: actorOrganizationId, action, event: 'failed', before, after: failed });
+    throw error;
+  }
+}
+
+function buildResponse(text, cards = [], extra = {}) {
+  return { text, cards, ...extra };
+}
+
+function pendingAction(store, conversation) {
+  return conversation.context.pendingActionId
+    ? store.findOne('actions', (item) => item.id === conversation.context.pendingActionId)
+    : null;
+}
+
+function getContextStatus(conversation) {
+  return {
+    activeProcessId: conversation.context.activeProcessId,
+    activeRequirementId: conversation.context.activeRequirementId,
+    activeMatchRunId: conversation.context.activeMatchRunId,
+    activeRequestId: conversation.context.activeRequestId,
+    pendingActionId: conversation.context.pendingActionId
+  };
+}
+
+function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizationId, text, now = new Date() }) {
+  const conversation = getConversation(store, conversationId, actorOrganizationId);
+  const content = String(text || '').trim();
+  requireValue(content, 'message');
+  if (content.length > MAX_MESSAGE_LENGTH) throw new DomainError('MESSAGE_TOO_LARGE', `Message is limited to ${MAX_MESSAGE_LENGTH} characters`);
+  const userMessage = addMessage(store, conversation, 'user', content);
+  const intent = detectIntent(content);
+  const workflow = store.insert('workflows', {
+    id: `workflow-${randomUUID()}`,
+    conversationId,
+    organizationId: actorOrganizationId,
+    intent,
+    state: 'running',
+    startedAt: now.toISOString(),
+    completedAt: null,
+    provider: 'heuristic-demo',
+    assistantVersion: ASSISTANT_VERSION,
+    stepIds: []
+  });
+  let response;
+  let state = 'completed';
+  try {
+    if (intent === 'confirm_action') {
+      const action = pendingAction(store, conversation);
+      if (!action) {
+        response = buildResponse('There is no pending action to confirm. Ask me to prepare a listing, requirement, or supply request first.', [], { needsInput: true });
+      } else {
+        const executed = executeAction(store, action, { actorUserId, actorOrganizationId });
+        conversation.context.pendingActionId = null;
+        if (executed.operation === 'create_requirement') conversation.context.activeRequirementId = executed.result.id;
+        if (executed.operation === 'submit_supply_request') conversation.context.activeRequestId = executed.result.id;
+        response = buildResponse(`Done. ${action.summary}`, [{ type: 'action_receipt', actionId: action.id, status: executed.status, operation: executed.operation, result: executed.result }], { receipt: executed.result });
+      }
+    } else if (intent === 'cancel_action') {
+      const action = pendingAction(store, conversation);
+      if (!action) response = buildResponse('There is no pending action to cancel.', [], { needsInput: true });
+      else {
+        const cancelled = store.replace('actions', action.id, { status: 'rejected', version: action.version + 1, completedAt: now.toISOString() });
+        conversation.context.pendingActionId = null;
+        appendAudit(store, { actorUserId, organizationId: actorOrganizationId, action, event: 'rejected', before: action, after: cancelled });
+        response = buildResponse('Cancelled. No marketplace record was changed.', [{ type: 'action_receipt', actionId: action.id, status: 'rejected', operation: action.operation }]);
+      }
+    } else if (intent === 'discover_process_outputs') {
+      const result = discoverProcess(store, { actorOrganizationId, description: content, now });
+      conversation.context.activeProcessId = result.process.id;
+      conversation.context.activeDiscoveryCandidateIds = result.candidates.map((candidate) => candidate.id);
+      response = buildResponse(`I found ${result.candidates.length} possible output${result.candidates.length === 1 ? '' : 's'} to review. They are hypotheses until you add measured quantity and evidence.`, [{ type: 'process_discovery', ...result }], { context: getContextStatus(conversation) });
+    } else if (intent === 'prepare_listing') {
+      if (!conversation.context.activeProcessId) {
+        response = buildResponse('First describe the process that creates the output. I will identify candidate resources before preparing a listing.', [], { needsInput: true, missingFields: ['process description'] });
+      } else {
+        const candidateId = conversation.context.activeDiscoveryCandidateIds[0];
+        const candidate = store.findOne('discoveryCandidates', (item) => item.id === candidateId && item.organizationId === actorOrganizationId);
+        if (!candidate) throw new DomainError('NOT_FOUND', 'The discovery opportunity is no longer available', 404);
+        const action = createAction(store, { conversation, actorUserId, operation: 'create_listing_draft', riskClass: 'reversible_private', payload: { processId: conversation.context.activeProcessId, discoveryCandidateId: candidate.id }, summary: `Prepare a draft for “${candidate.label}”` , now });
+        state = 'waiting_for_approval';
+        response = buildResponse('I prepared a draft action. The draft will stay private and cannot publish until its quantity and evidence are complete.', [actionCard(action)], { waitingForApproval: true });
+      }
+    } else if (intent === 'create_requirement') {
+      const quantity = parseQuantity(content);
+      const period = parsePeriod(content);
+      const missingFields = [];
+      if (!quantity) missingFields.push('quantity in tonnes');
+      if (!period) missingFields.push('delivery period, for example October 2026');
+      if (missingFields.length > 0) {
+        response = buildResponse('I can create the buyer requirement, but I need a little more information.', [{ type: 'missing_fields', fields: missingFields, examples: { quantity: '100 tonnes', period: 'October 2026', purity: 'at least 95%' } }], { needsInput: true, missingFields });
+      } else {
+        const payload = {
+          name: 'Assistant-created buyer requirement',
+          siteId: 'site-buyer',
+          periodStart: period.start,
+          periodEnd: period.end,
+          quantityTonnes: quantity,
+          minimumPurityMolPct: parsePurity(content) ?? 0,
+          acceptableForms: parseForm(content),
+          maxDistanceKm: parseDistance(content),
+          maxDeliveredPaisePerTonne: parseBudget(content),
+          limits: []
+        };
+        const action = createAction(store, { conversation, actorUserId, operation: 'create_requirement', riskClass: 'reversible_private', payload, summary: `Create a ${quantity} tonne buyer requirement for ${period.start} to ${period.end}`, now });
+        state = 'waiting_for_approval';
+        response = buildResponse('Here is the requirement I extracted. Confirm it to save an editable draft.', [actionCard(action)], { waitingForApproval: true });
+      }
+    } else if (intent === 'find_matches') {
+      const requirement = resolveRequirement(store, conversation, actorOrganizationId, content);
+      if (!requirement) {
+        response = buildResponse('I do not have a buyer requirement yet. Tell me the quantity and delivery period, for example “need 100 tonnes in October 2026”.', [], { needsInput: true });
+      } else {
+        const result = runMatch(store, { requirementId: requirement.id, actorOrganizationId, now });
+        conversation.context.activeRequirementId = requirement.id;
+        conversation.context.activeMatchRunId = result.run.id;
+        conversation.context.activeMatchResultIds = result.results.map((item) => item.id);
+        response = buildResponse(`I evaluated ${result.results.length} published options. ${result.groups.compatible.length} are compatible, ${result.groups.needsEvidence.length} need evidence, and ${result.groups.incompatible.length} are incompatible.`, [{ type: 'match_results', ...result }], { context: getContextStatus(conversation) });
+      }
+    } else if (intent === 'compare_options') {
+      if (!conversation.context.activeMatchRunId) {
+        response = buildResponse('Run a match first, then ask me to compare the options.', [], { needsInput: true });
+      } else {
+        const match = getMatchRun(store, conversation.context.activeMatchRunId, actorOrganizationId);
+        const results = match.results.filter((item) => item.status === 'compatible').slice(0, 3);
+        response = buildResponse(`Here are ${results.length} compatible options compared using the same requirement and rate-card version.`, [{ type: 'comparison', matchRunId: match.run.id, options: results, notes: ['Ranking uses deterministic stored checks and delivered-cost assumptions.', 'A comparison is decision support, not a certification or quote.'] }]);
+      }
+    } else if (intent === 'prepare_request') {
+      const requirement = resolveRequirement(store, conversation, actorOrganizationId, content);
+      if (!requirement) {
+        response = buildResponse('Create or select a buyer requirement first so I can prepare a request with exact terms.', [], { needsInput: true });
+      } else {
+        const match = conversation.context.activeMatchRunId ? getMatchRun(store, conversation.context.activeMatchRunId, actorOrganizationId) : runMatch(store, { requirementId: requirement.id, actorOrganizationId, now });
+        const result = resolveMatchResult(store, conversation, content) || match.results.find((item) => item.status === 'compatible');
+        if (!result || result.status !== 'compatible') {
+          response = buildResponse('I could not prepare a request because there is no currently compatible option. I can show the evidence gaps and failed checks.', [{ type: 'match_results', ...match }], { needsInput: true });
+        } else {
+          conversation.context.activeRequirementId = requirement.id;
+          conversation.context.activeMatchRunId = match.run.id;
+          conversation.context.activeMatchResultIds = match.results.map((item) => item.id);
+          const action = createAction(store, { conversation, actorUserId, operation: 'submit_supply_request', payload: { requirementId: requirement.id, streamId: result.streamId, matchResultId: result.id }, summary: `Submit a ${requirement.quantityTonnes} tonne request to ${result.streamName}`, now });
+          state = 'waiting_for_approval';
+          response = buildResponse('I prepared the exact supply request. Review the supplier, period, quantity and delivered estimate, then confirm.', [actionCard(action), { type: 'decision_receipt_preview', requirement, selectedOption: result }], { waitingForApproval: true });
+        }
+      }
+    } else if (intent === 'manage_request') {
+      const request = [...store.supplyRequests].reverse().find((item) => item.id === conversation.context.activeRequestId || content.includes(item.id));
+      if (!request) response = buildResponse('I could not find a request to manage in this conversation.', [], { needsInput: true });
+      else if (/\baccept/.test(content.toLowerCase())) {
+        const action = createAction(store, { conversation, actorUserId, operation: 'accept_supply_request', riskClass: 'commercial_privileged', payload: { requestId: request.id }, summary: `Accept request ${request.id} and reserve ${request.quantityTonnes} tonnes`, now });
+        state = 'waiting_for_approval';
+        response = buildResponse('This reserves supply for the request. Review the reservation preview and confirm only if the terms are correct.', [actionCard(action)], { waitingForApproval: true });
+      } else response = buildResponse(`Request ${request.id} is currently ${request.status}.`, [{ type: 'request_status', request }]);
+    } else if (intent === 'explain_context') {
+      const action = pendingAction(store, conversation);
+      response = buildResponse('I keep the current process, requirement, match run and pending approval in this conversation. I use the marketplace services for calculations and writes, so a chat answer cannot bypass ownership or quality rules.', action ? [actionCard(action)] : [], { context: getContextStatus(conversation) });
+    } else {
+      response = buildResponse('I can discover outputs from a process, prepare a listing draft, create a buyer requirement, find and compare supply, or prepare a request. Tell me what you want to do in your own words.', [{ type: 'capabilities', actions: ['discover_process_outputs', 'prepare_listing', 'create_requirement', 'find_matches', 'compare_options', 'prepare_request'] }], { needsInput: true });
+    }
+  } catch (error) {
+    state = 'failed';
+    const failedAction = pendingAction(store, conversation);
+    if (failedAction && failedAction.status === 'failed') conversation.context.pendingActionId = null;
+    response = buildResponse(error.message, [{ type: 'error', code: error.code || 'ASSISTANT_ERROR', retryable: false }], { failed: true });
+  }
+
+  const assistantMessage = addMessage(store, conversation, 'assistant', response.text, { intent, cards: response.cards, context: getContextStatus(conversation) });
+  store.replace('workflows', workflow.id, { state, completedAt: store.now(), outputMessageId: assistantMessage.id });
+  conversation.updatedAt = store.now();
+  conversation.version += 1;
+  return {
+    conversationId,
+    workflowId: workflow.id,
+    userMessageId: userMessage.id,
+    assistantMessageId: assistantMessage.id,
+    intent: { name: intent, confidence: 0.86, provider: 'heuristic-demo', schemaVersion: 'intent-v1' },
+    state,
+    response,
+    context: getContextStatus(conversation)
+  };
+}
+
+function getConversationTranscript(store, conversationId, actorOrganizationId) {
+  const conversation = getConversation(store, conversationId, actorOrganizationId);
+  return {
+    conversation: structuredClone(conversation),
+    messages: structuredClone(store.findMany('messages', (item) => item.conversationId === conversationId)),
+    workflows: structuredClone(store.findMany('workflows', (item) => item.conversationId === conversationId))
+  };
+}
+
+module.exports = {
+  ASSISTANT_VERSION,
+  createConversation,
+  getConversation,
+  getConversationTranscript,
+  orchestrateMessage,
+  executeAction,
+  actionCard,
+  detectIntent
+};

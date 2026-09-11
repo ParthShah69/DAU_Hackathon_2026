@@ -1,0 +1,38 @@
+{
+  "schema_version": "2.0",
+  "manifest_version": "2026-09-12",
+  "capabilities": [
+    {
+      "key": "process_discovery",
+      "manual_route": "/processes",
+      "read_tools": ["analyze_process", "retrieve_process_sources"],
+      "write_tools": ["save_process", "create_listing_draft"],
+      "risk_class": "private_draft",
+      "manual_fallback": true
+    },
+    {
+      "key": "market_search",
+      "manual_route": "/marketplace",
+      "read_tools": ["search_listings", "evaluate_requirement", "compare_match_results"],
+      "write_tools": ["prepare_supply_request"],
+      "risk_class": "commercial",
+      "manual_fallback": true
+    },
+    {
+      "key": "policy_screening",
+      "manual_route": "/policies",
+      "read_tools": ["retrieve_policy", "screen_policy"],
+      "write_tools": [],
+      "risk_class": "read",
+      "manual_fallback": true
+    },
+    {
+      "key": "analytics_report",
+      "manual_route": "/reports",
+      "read_tools": ["get_metrics"],
+      "write_tools": ["prepare_report"],
+      "risk_class": "private_draft",
+      "manual_fallback": true
+    }
+  ]
+}

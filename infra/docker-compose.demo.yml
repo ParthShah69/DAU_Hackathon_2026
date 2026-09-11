@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: carbonbridge_demo
+      POSTGRES_USER: carbonbridge_app
+      POSTGRES_PASSWORD: ${CARBONBRIDGE_DEMO_DB_PASSWORD:?Set CARBONBRIDGE_DEMO_DB_PASSWORD for the local demo}
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - carbonbridge_demo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carbonbridge_app -d carbonbridge_demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  carbonbridge_demo_pgdata:

@@ -1,0 +1,318 @@
+{
+  "id": "759c82d6-7188-5a79-ae26-82a78981c4eb",
+  "schema_version": "2.0",
+  "created_at": "2026-09-12T00:00:00Z",
+  "updated_at": "2026-09-12T00:00:00Z",
+  "as_of": "2026-09-12T00:00:00Z",
+  "listings": [
+    {
+      "id": "99d4388b-d7f1-5c6e-aa7d-f5f6538f66a9",
+      "schema_version": "2.0",
+      "created_at": "2026-09-12T00:00:00Z",
+      "updated_at": "2026-09-12T00:00:00Z",
+      "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+      "material": "captured_co2",
+      "status": "active",
+      "version": 2,
+      "quantity_available": {
+        "value": "60",
+        "unit": "t_per_month",
+        "basis": "dry",
+        "period": "monthly"
+      },
+      "quality": {
+        "purity": {
+          "value": "97",
+          "unit": "percent",
+          "basis": "dry"
+        },
+        "moisture": null,
+        "evidence_state": "reviewed"
+      },
+      "location": {
+        "city": "Pune",
+        "country": "IN",
+        "public_region": "Pune"
+      },
+      "price": {
+        "amount_minor_per_tonne": 1800000,
+        "currency": "INR",
+        "basis": "ex_works"
+      },
+      "minimum_order": {
+        "value": "1",
+        "unit": "t",
+        "basis": "dry"
+      },
+      "available_from": "2026-09-01",
+      "available_to": "2026-10-31",
+      "evidence_refs": [],
+      "source_class": "synthetic_demo",
+      "public": true
+    },
+    {
+      "id": "77f91835-1c4f-5d4e-a1b8-94ff5cdf4d17",
+      "schema_version": "2.0",
+      "created_at": "2026-09-12T00:00:00Z",
+      "updated_at": "2026-09-12T00:00:00Z",
+      "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+      "material": "captured_co2",
+      "status": "active",
+      "version": 1,
+      "quantity_available": {
+        "value": "18",
+        "unit": "t_per_month",
+        "basis": "dry",
+        "period": "monthly"
+      },
+      "quality": {
+        "purity": {
+          "value": "95",
+          "unit": "percent",
+          "basis": "dry"
+        },
+        "moisture": null,
+        "evidence_state": "reviewed"
+      },
+      "location": {
+        "city": "Pune",
+        "country": "IN",
+        "public_region": "Pune"
+      },
+      "price": {
+        "amount_minor_per_tonne": 1980000,
+        "currency": "INR",
+        "basis": "ex_works"
+      },
+      "minimum_order": {
+        "value": "1",
+        "unit": "t",
+        "basis": "dry"
+      },
+      "available_from": "2026-09-01",
+      "available_to": "2026-10-31",
+      "evidence_refs": [],
+      "source_class": "synthetic_demo",
+      "public": true
+    },
+    {
+      "id": "5be085df-4785-5e3c-ad92-fafbb1815d49",
+      "schema_version": "2.0",
+      "created_at": "2026-09-12T00:00:00Z",
+      "updated_at": "2026-09-12T00:00:00Z",
+      "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+      "material": "captured_co2",
+      "status": "active",
+      "version": 1,
+      "quantity_available": {
+        "value": "8",
+        "unit": "t_per_month",
+        "basis": "dry",
+        "period": "monthly"
+      },
+      "quality": {
+        "purity": {
+          "value": "98",
+          "unit": "percent",
+          "basis": "dry"
+        },
+        "moisture": null,
+        "evidence_state": "reviewed"
+      },
+      "location": {
+        "city": "Pune",
+        "country": "IN",
+        "public_region": "Pune"
+      },
+      "price": {
+        "amount_minor_per_tonne": 2150000,
+        "currency": "INR",
+        "basis": "ex_works"
+      },
+      "minimum_order": {
+        "value": "1",
+        "unit": "t",
+        "basis": "dry"
+      },
+      "available_from": "2026-09-01",
+      "available_to": "2026-10-31",
+      "evidence_refs": [],
+      "source_class": "synthetic_demo",
+      "public": true
+    },
+    {
+      "id": "fb60bb8c-89c4-5352-abf4-218e0f48c768",
+      "schema_version": "2.0",
+      "created_at": "2026-09-12T00:00:00Z",
+      "updated_at": "2026-09-12T00:00:00Z",
+      "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+      "material": "wet_algae_biomass",
+      "status": "active",
+      "version": 1,
+      "quantity_available": {
+        "value": "4",
+        "unit": "t_per_month",
+        "basis": "wet",
+        "period": "monthly"
+      },
+      "quality": {
+        "purity": null,
+        "moisture": null,
+        "evidence_state": "missing"
+      },
+      "location": {
+        "city": "Nashik",
+        "country": "IN",
+        "public_region": "Nashik"
+      },
+      "price": {
+        "amount_minor_per_tonne": 520000,
+        "currency": "INR",
+        "basis": "ex_works"
+      },
+      "minimum_order": {
+        "value": "1",
+        "unit": "t",
+        "basis": "wet"
+      },
+      "available_from": "2026-09-01",
+      "available_to": "2026-10-31",
+      "evidence_refs": [],
+      "source_class": "synthetic_demo",
+      "public": true
+    },
+    {
+      "id": "99b6709f-de33-5dc7-83ab-2a680051a24b",
+      "schema_version": "2.0",
+      "created_at": "2026-09-12T00:00:00Z",
+      "updated_at": "2026-09-12T00:00:00Z",
+      "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+      "material": "captured_co2",
+      "status": "expired",
+      "version": 1,
+      "quantity_available": {
+        "value": "10",
+        "unit": "t_per_month",
+        "basis": "dry",
+        "period": "monthly"
+      },
+      "quality": {
+        "purity": {
+          "value": "92",
+          "unit": "percent",
+          "basis": "dry"
+        },
+        "moisture": null,
+        "evidence_state": "reviewed"
+      },
+      "location": {
+        "city": "Pune",
+        "country": "IN",
+        "public_region": "Pune"
+      },
+      "price": {
+        "amount_minor_per_tonne": 1500000,
+        "currency": "INR",
+        "basis": "ex_works"
+      },
+      "minimum_order": {
+        "value": "1",
+        "unit": "t",
+        "basis": "dry"
+      },
+      "available_from": "2026-09-01",
+      "available_to": "2026-10-31",
+      "evidence_refs": [],
+      "source_class": "synthetic_demo",
+      "public": false
+    },
+    {
+      "id": "05d32e64-403b-543a-917b-c7f5c9c7c1ea",
+      "schema_version": "2.0",
+      "created_at": "2026-09-12T00:00:00Z",
+      "updated_at": "2026-09-12T00:00:00Z",
+      "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+      "material": "captured_co2",
+      "status": "draft",
+      "version": 3,
+      "quantity_available": {
+        "value": "2",
+        "unit": "t_per_month",
+        "basis": "dry",
+        "period": "monthly"
+      },
+      "quality": {
+        "purity": null,
+        "moisture": null,
+        "evidence_state": "missing"
+      },
+      "location": {
+        "city": "Pune",
+        "country": "IN",
+        "public_region": "Pune"
+      },
+      "price": {
+        "amount_minor_per_tonne": 2800000,
+        "currency": "INR",
+        "basis": "ex_works"
+      },
+      "minimum_order": {
+        "value": "1",
+        "unit": "t",
+        "basis": "dry"
+      },
+      "available_from": "2026-09-01",
+      "available_to": "2026-10-31",
+      "evidence_refs": [],
+      "source_class": "synthetic_demo",
+      "public": false
+    }
+  ],
+  "requirements": [
+    "5e5d1820-fb31-5a2d-b674-fa7f1c6db178",
+    "87dbf253-e97e-5a99-b55e-8628704e63bd",
+    "e3531c6b-c60e-5dff-85a8-4023273773fe",
+    "b7320c4c-eccd-51a8-9d94-256cf02ccdaf"
+  ],
+  "requests": [
+    {
+      "id": "0875f528-4ff7-59a0-ba54-475cdc2a0c82",
+      "schema_version": "2.0",
+      "created_at": "2026-09-12T00:00:00Z",
+      "updated_at": "2026-09-12T00:00:00Z",
+      "buyer_requirement_id": "5e5d1820-fb31-5a2d-b674-fa7f1c6db178",
+      "listing_id": "77f91835-1c4f-5d4e-a1b8-94ff5cdf4d17",
+      "buyer_organization_id": "c2082817-78be-5dc6-b3b1-a0fac95c3380",
+      "supplier_organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+      "quantity": {
+        "value": "18",
+        "unit": "t",
+        "basis": "dry"
+      },
+      "status": "submitted",
+      "version": 1,
+      "source_class": "synthetic_demo"
+    },
+    {
+      "id": "f88e2912-e398-5ba3-b87a-876fb30b624e",
+      "schema_version": "2.0",
+      "created_at": "2026-09-12T00:00:00Z",
+      "updated_at": "2026-09-12T00:00:00Z",
+      "buyer_requirement_id": "e3531c6b-c60e-5dff-85a8-4023273773fe",
+      "listing_id": "99d4388b-d7f1-5c6e-aa7d-f5f6538f66a9",
+      "buyer_organization_id": "cf7b1333-24e6-5013-b355-32a851ebc08a",
+      "supplier_organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+      "quantity": {
+        "value": "60",
+        "unit": "t",
+        "basis": "dry"
+      },
+      "status": "accepted",
+      "version": 2,
+      "source_class": "synthetic_demo"
+    }
+  ],
+  "ranking_policy_version": "v1-compatible-1",
+  "cost_formula_version": "v1-compatible-1",
+  "source_class": "synthetic_demo"
+}

@@ -1,0 +1,76 @@
+[
+  {
+    "id": "8b2e69fd-39f3-5e85-bb2c-9e02de329e25",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "email": "seller.northstar@example.test",
+    "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "roles": [
+      "supplier_admin"
+    ],
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "79822597-98ec-5d50-a7d9-d85b6a90c134",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "email": "reviewer.northstar@example.test",
+    "organization_id": "73c97d7f-ae9e-5ed6-8514-2fdc80eeac76",
+    "roles": [
+      "supplier_reviewer"
+    ],
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "f3af69a5-2025-599e-9e35-473611e19745",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "email": "buyer.greengrow@example.test",
+    "organization_id": "c2082817-78be-5dc6-b3b1-a0fac95c3380",
+    "roles": [
+      "buyer_admin"
+    ],
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "6ea9976a-000a-5818-98c5-207cedc54b5f",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "email": "engineer.terrabuild@example.test",
+    "organization_id": "cf7b1333-24e6-5013-b355-32a851ebc08a",
+    "roles": [
+      "buyer_admin"
+    ],
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "b9fda3f6-a307-52b4-b198-5ddfadd9e9b3",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "email": "curator.caf@example.test",
+    "organization_id": "32d9e671-c532-5855-8fa0-36f9e911fcdd",
+    "roles": [
+      "ngo_editor",
+      "evidence_reviewer"
+    ],
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "31b96f8f-153d-5b58-8b10-51af7f915ce8",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "email": "reviewer.ops@example.test",
+    "organization_id": "6ab6fe7a-9b24-5276-95aa-e4e98ee5cbf5",
+    "roles": [
+      "moderator",
+      "policy_reviewer"
+    ],
+    "source_class": "synthetic_demo"
+  }
+]

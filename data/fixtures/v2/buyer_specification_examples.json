@@ -1,0 +1,270 @@
+[
+  {
+    "id": "5e5d1820-fb31-5a2d-b674-fa7f1c6db178",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "organization_id": "c2082817-78be-5dc6-b3b1-a0fac95c3380",
+    "title": "greenhouse CO2 enrichment",
+    "material": "captured_co2",
+    "quantity": {
+      "value": "20",
+      "unit": "t_per_month",
+      "basis": "dry",
+      "period": "monthly"
+    },
+    "quality_constraints": {
+      "min_purity": {
+        "value": "95",
+        "unit": "percent",
+        "basis": "dry"
+      },
+      "max_moisture": null
+    },
+    "delivery": {
+      "city": "Pune",
+      "radius_km": "50",
+      "cadence": "monthly"
+    },
+    "price_limit": {
+      "amount_minor": 1800000,
+      "currency": "INR",
+      "basis": "per_tonne_delivered"
+    },
+    "status": "active",
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "87dbf253-e97e-5a99-b55e-8628704e63bd",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "organization_id": "c2082817-78be-5dc6-b3b1-a0fac95c3380",
+    "title": "pilot greenhouse supply",
+    "material": "captured_co2",
+    "quantity": {
+      "value": "8",
+      "unit": "t_per_month",
+      "basis": "dry",
+      "period": "monthly"
+    },
+    "quality_constraints": {
+      "min_purity": {
+        "value": "98",
+        "unit": "percent",
+        "basis": "dry"
+      },
+      "max_moisture": null
+    },
+    "delivery": {
+      "city": "Nashik",
+      "radius_km": "30",
+      "cadence": "monthly"
+    },
+    "price_limit": {
+      "amount_minor": 2100000,
+      "currency": "INR",
+      "basis": "per_tonne_delivered"
+    },
+    "status": "active",
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "e3531c6b-c60e-5dff-85a8-4023273773fe",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "organization_id": "cf7b1333-24e6-5013-b355-32a851ebc08a",
+    "title": "mineral curing input",
+    "material": "captured_co2",
+    "quantity": {
+      "value": "60",
+      "unit": "t_per_month",
+      "basis": "dry",
+      "period": "monthly"
+    },
+    "quality_constraints": {
+      "min_purity": {
+        "value": "90",
+        "unit": "percent",
+        "basis": "dry"
+      },
+      "max_moisture": null
+    },
+    "delivery": {
+      "city": "Mumbai",
+      "radius_km": "150",
+      "cadence": "monthly"
+    },
+    "price_limit": {
+      "amount_minor": 1500000,
+      "currency": "INR",
+      "basis": "per_tonne_delivered"
+    },
+    "status": "active",
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "b7320c4c-eccd-51a8-9d94-256cf02ccdaf",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "organization_id": "cf7b1333-24e6-5013-b355-32a851ebc08a",
+    "title": "trial curing input",
+    "material": "captured_co2",
+    "quantity": {
+      "value": "25",
+      "unit": "t_per_month",
+      "basis": "dry",
+      "period": "monthly"
+    },
+    "quality_constraints": {
+      "min_purity": {
+        "value": "96",
+        "unit": "percent",
+        "basis": "dry"
+      },
+      "max_moisture": null
+    },
+    "delivery": {
+      "city": "Mumbai",
+      "radius_km": "100",
+      "cadence": "monthly"
+    },
+    "price_limit": {
+      "amount_minor": 1750000,
+      "currency": "INR",
+      "basis": "per_tonne_delivered"
+    },
+    "status": "active",
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "954cca3d-171f-52e4-beed-102bd2876672",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "organization_id": "c2082817-78be-5dc6-b3b1-a0fac95c3380",
+    "title": "wet algae trial",
+    "material": "wet_algae_biomass",
+    "quantity": {
+      "value": "4",
+      "unit": "t_per_month",
+      "basis": "wet",
+      "period": "monthly"
+    },
+    "quality_constraints": {
+      "min_purity": null,
+      "max_moisture": null
+    },
+    "delivery": {
+      "city": "Nashik",
+      "radius_km": "80",
+      "cadence": "monthly"
+    },
+    "price_limit": {
+      "amount_minor": 600000,
+      "currency": "INR",
+      "basis": "per_tonne_delivered"
+    },
+    "status": "active",
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "8c7603d3-bf48-5590-9f3a-21e9919971ec",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "organization_id": "cf7b1333-24e6-5013-b355-32a851ebc08a",
+    "title": "food grade gas test",
+    "material": "captured_co2",
+    "quantity": {
+      "value": "2",
+      "unit": "t_per_month",
+      "basis": "dry",
+      "period": "monthly"
+    },
+    "quality_constraints": {
+      "min_purity": {
+        "value": "99.5",
+        "unit": "percent",
+        "basis": "dry"
+      },
+      "max_moisture": null
+    },
+    "delivery": {
+      "city": "Mumbai",
+      "radius_km": "120",
+      "cadence": "monthly"
+    },
+    "price_limit": {
+      "amount_minor": 2800000,
+      "currency": "INR",
+      "basis": "per_tonne_delivered"
+    },
+    "status": "active",
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "b4ab56cd-aa29-50b3-902c-599516a7d1ce",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "organization_id": "c2082817-78be-5dc6-b3b1-a0fac95c3380",
+    "title": "flexible CO2 buyer",
+    "material": "captured_co2",
+    "quantity": {
+      "value": "5",
+      "unit": "t_per_month",
+      "basis": "as_received",
+      "period": "monthly"
+    },
+    "quality_constraints": {
+      "min_purity": {
+        "value": "90",
+        "unit": "percent",
+        "basis": "as_received"
+      },
+      "max_moisture": null
+    },
+    "delivery": {
+      "city": "Pune",
+      "radius_km": "100",
+      "cadence": "monthly"
+    },
+    "price_limit": null,
+    "status": "active",
+    "source_class": "synthetic_demo"
+  },
+  {
+    "id": "80b8b48f-91cd-5f40-adfb-326b408c9d27",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "organization_id": "cf7b1333-24e6-5013-b355-32a851ebc08a",
+    "title": "granulation dust trial",
+    "material": "granulation_dust",
+    "quantity": {
+      "value": "0.5",
+      "unit": "t_per_month",
+      "basis": "as_received",
+      "period": "monthly"
+    },
+    "quality_constraints": {
+      "min_purity": null,
+      "max_moisture": null
+    },
+    "delivery": {
+      "city": "Mumbai",
+      "radius_km": "80",
+      "cadence": "monthly"
+    },
+    "price_limit": {
+      "amount_minor": 350000,
+      "currency": "INR",
+      "basis": "per_tonne_delivered"
+    },
+    "status": "active",
+    "source_class": "synthetic_demo"
+  }
+]

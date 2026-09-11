@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "2.0",
+  "source": {
+    "id": "carbonbridge-demo-seed-v2",
+    "kind": "synthetic_demo",
+    "label": "CarbonBridge fictional demonstration dataset",
+    "asOf": "2026-09-12T00:00:00Z"
+  },
+  "organizations": [
+    {
+      "id": "org-carbonstone",
+      "name": "CarbonStone Materials",
+      "capabilities": ["supplier"],
+      "synthetic": true,
+      "status": "active"
+    },
+    {
+      "id": "org-greenbuild",
+      "name": "GreenBuild Concrete",
+      "capabilities": ["buyer"],
+      "synthetic": true,
+      "status": "active"
+    },
+    {
+      "id": "org-climateworks",
+      "name": "ClimateWorks Collective",
+      "capabilities": ["ngo"],
+      "synthetic": true,
+      "status": "active"
+    }
+  ],
+  "users": [
+    { "id": "user-seller", "externalSubject": "demo-seller", "displayName": "Seller demo" },
+    { "id": "user-buyer", "externalSubject": "demo-buyer", "displayName": "Buyer demo" },
+    { "id": "user-reviewer", "externalSubject": "demo-reviewer", "displayName": "Reviewer demo" }
+  ],
+  "memberships": [
+    { "userId": "user-seller", "organizationId": "org-carbonstone", "roles": ["org_admin", "supplier_editor"] },
+    { "userId": "user-buyer", "organizationId": "org-greenbuild", "roles": ["org_admin", "buyer_editor"] },
+    { "userId": "user-reviewer", "organizationId": "org-climateworks", "roles": ["org_admin", "reviewer"] }
+  ],
+  "sites": [
+    { "id": "site-a", "organizationId": "org-carbonstone", "label": "CarbonStone capture site", "city": "Ahmedabad", "latitude": 23.0225, "longitude": 72.5714 },
+    { "id": "site-d", "organizationId": "org-carbonstone", "label": "CarbonStone secondary site", "city": "Vadodara", "latitude": 22.3072, "longitude": 73.1812 },
+    { "id": "site-f", "organizationId": "org-carbonstone", "label": "CarbonStone long-haul site", "city": "Surat", "latitude": 21.1702, "longitude": 72.8311 },
+    { "id": "site-buyer", "organizationId": "org-greenbuild", "label": "GreenBuild receiving site", "city": "Rajkot", "latitude": 22.3039, "longitude": 70.8022 }
+  ],
+  "streams": [
+    { "id": "stream-a", "organizationId": "org-carbonstone", "siteId": "site-a", "name": "Captured CO2 A", "sourceIndustry": "cement", "physicalForm": "gas", "co2Origin": "point_source", "state": "published", "synthetic": true },
+    { "id": "stream-d", "organizationId": "org-carbonstone", "siteId": "site-d", "name": "Captured CO2 D", "sourceIndustry": "cement", "physicalForm": "gas", "co2Origin": "point_source", "state": "published", "synthetic": true },
+    { "id": "stream-f", "organizationId": "org-carbonstone", "siteId": "site-f", "name": "Captured CO2 F", "sourceIndustry": "fertilizer", "physicalForm": "gas", "co2Origin": "point_source", "state": "published", "synthetic": true },
+    { "id": "stream-unknown", "organizationId": "org-carbonstone", "siteId": "site-a", "name": "New process opportunity", "sourceIndustry": "cement", "physicalForm": "gas", "co2Origin": "point_source", "state": "published", "synthetic": true }
+  ],
+  "qualityReports": [
+    { "id": "quality-a", "streamId": "stream-a", "purityMolPct": "98.2", "basis": "dry", "sampledAt": "2026-09-01T00:00:00Z", "expiresAt": "2026-10-01T00:00:00Z", "evidenceStatus": "self_reported", "synthetic": true },
+    { "id": "quality-d", "streamId": "stream-d", "purityMolPct": "96.5", "basis": "dry", "sampledAt": "2026-08-28T00:00:00Z", "expiresAt": "2026-09-28T00:00:00Z", "evidenceStatus": "self_reported", "synthetic": true },
+    { "id": "quality-f", "streamId": "stream-f", "purityMolPct": "94.1", "basis": "dry", "sampledAt": "2026-09-03T00:00:00Z", "expiresAt": "2026-10-03T00:00:00Z", "evidenceStatus": "self_reported", "synthetic": true }
+  ],
+  "analyteResults": [
+    { "qualityReportId": "quality-a", "analyte": "H2O", "value": "0.6", "unit": "mol_percent", "basis": "dry", "qualifier": "measured" },
+    { "qualityReportId": "quality-a", "analyte": "CO", "value": "100", "unit": "ppmv", "basis": "dry", "qualifier": "measured" },
+    { "qualityReportId": "quality-d", "analyte": "H2O", "value": "0.8", "unit": "mol_percent", "basis": "dry", "qualifier": "measured" },
+    { "qualityReportId": "quality-d", "analyte": "CO", "value": "180", "unit": "ppmv", "basis": "dry", "qualifier": "measured" },
+    { "qualityReportId": "quality-f", "analyte": "H2O", "value": "1.2", "unit": "mol_percent", "basis": "dry", "qualifier": "measured" },
+    { "qualityReportId": "quality-f", "analyte": "CO", "value": "7000", "unit": "ppmv", "basis": "dry", "qualifier": "measured" }
+  ],
+  "supplyPeriods": [
+    { "id": "period-a-oct", "streamId": "stream-a", "start": "2026-10-01", "end": "2026-10-31", "totalTonnes": "160", "reservedTonnes": "0", "minimumOrderTonnes": "20", "listedPricePaisePerTonne": 190000, "currency": "INR" },
+    { "id": "period-d-oct", "streamId": "stream-d", "start": "2026-10-01", "end": "2026-10-31", "totalTonnes": "120", "reservedTonnes": "0", "minimumOrderTonnes": "20", "listedPricePaisePerTonne": 210000, "currency": "INR" },
+    { "id": "period-f-oct", "streamId": "stream-f", "start": "2026-10-01", "end": "2026-10-31", "totalTonnes": "300", "reservedTonnes": "0", "minimumOrderTonnes": "20", "listedPricePaisePerTonne": 170000, "currency": "INR" },
+    { "id": "period-unknown-oct", "streamId": "stream-unknown", "start": "2026-10-01", "end": "2026-10-31", "totalTonnes": "120", "reservedTonnes": "0", "minimumOrderTonnes": "10", "listedPricePaisePerTonne": 180000, "currency": "INR" }
+  ],
+  "requirements": [
+    {
+      "id": "requirement-demo",
+      "organizationId": "org-greenbuild",
+      "siteId": "site-buyer",
+      "name": "October concrete curing requirement",
+      "periodStart": "2026-10-01",
+      "periodEnd": "2026-10-31",
+      "quantityTonnes": "100",
+      "minimumPurityMolPct": "95",
+      "acceptableForms": ["gas"],
+      "maxDistanceKm": "600",
+      "maxDeliveredPaisePerTonne": 230000,
+      "limits": [
+        { "analyte": "H2O", "maxValue": "1", "unit": "mol_percent", "basis": "dry", "critical": true },
+        { "analyte": "CO", "maxValue": "5000", "unit": "ppmv", "basis": "dry", "critical": true }
+      ],
+      "state": "published",
+      "version": 1
+    }
+  ],
+  "rateCards": [
+    { "id": "rate-demo-v1", "currency": "INR", "handlingPaisePerTonne": 10000, "ratePaisePerTonneKm": 100, "validFrom": "2026-01-01", "validTo": "2026-12-31", "version": "linear-road-demo-v1", "provenance": "synthetic_demo" }
+  ],
+  "distanceEstimates": [
+    { "originSiteId": "site-a", "destinationSiteId": "site-buyer", "distanceKm": "120", "method": "synthetic_road_matrix", "provenance": "synthetic_demo" },
+    { "originSiteId": "site-d", "destinationSiteId": "site-buyer", "distanceKm": "40", "method": "synthetic_road_matrix", "provenance": "synthetic_demo" },
+    { "originSiteId": "site-f", "destinationSiteId": "site-buyer", "distanceKm": "500", "method": "synthetic_road_matrix", "provenance": "synthetic_demo" },
+    { "originSiteId": "site-a", "destinationSiteId": "site-a", "distanceKm": "0", "method": "synthetic_road_matrix", "provenance": "synthetic_demo" }
+  ]
+}

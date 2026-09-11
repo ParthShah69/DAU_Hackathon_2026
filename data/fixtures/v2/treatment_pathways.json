@@ -1,0 +1,108 @@
+[
+  {
+    "id": "c160f999-f9b5-5d75-95d4-6f98188a517c",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "material": "captured_co2",
+    "method": "drying",
+    "description": "Reduce moisture before a purity test and downstream use.",
+    "required_evidence": [
+      "moisture measurement",
+      "energy availability"
+    ],
+    "status": "hypothesis",
+    "source_class": "synthetic_hypothesis"
+  },
+  {
+    "id": "f9c1fde8-c2fa-585e-beb2-9a04a5566d50",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "material": "captured_co2",
+    "method": "polishing",
+    "description": "A polishing step may reduce contaminants for a supported application.",
+    "required_evidence": [
+      "contaminant profile",
+      "method applicability"
+    ],
+    "status": "opportunity",
+    "source_class": "synthetic_hypothesis"
+  },
+  {
+    "id": "e436ade3-441a-5503-a61d-ddcb79faa176",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "material": "captured_co2",
+    "method": "quality_review",
+    "description": "Food and beverage use requires an appropriate grade review and certificate.",
+    "required_evidence": [
+      "food-grade standard",
+      "lab report"
+    ],
+    "status": "review_required",
+    "source_class": "synthetic_hypothesis"
+  },
+  {
+    "id": "0ac907d3-9e9a-5548-b52b-d06d8ca38502",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "material": "wet_algae_biomass",
+    "method": "dewatering",
+    "description": "Separate part of the water fraction when a buyer accepts a dry basis.",
+    "required_evidence": [
+      "moisture curve",
+      "buyer specification"
+    ],
+    "status": "hypothesis",
+    "source_class": "synthetic_hypothesis"
+  },
+  {
+    "id": "9dc7b7e3-8674-5afc-894b-453e0cdc5bb6",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "material": "stillage",
+    "method": "stabilization",
+    "description": "Stillage may require stabilization before storage or transport.",
+    "required_evidence": [
+      "composition",
+      "handling method"
+    ],
+    "status": "review_required",
+    "source_class": "synthetic_hypothesis"
+  },
+  {
+    "id": "e58f27ed-fb25-54c6-9f86-be649487aada",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "material": "granulation_dust",
+    "method": "screening",
+    "description": "Screen collected dust for composition and contaminants before a use claim.",
+    "required_evidence": [
+      "lab result",
+      "storage record"
+    ],
+    "status": "review_required",
+    "source_class": "synthetic_hypothesis"
+  },
+  {
+    "id": "fdcd09f1-0e9b-5f18-8c80-578aa9ffd25f",
+    "schema_version": "2.0",
+    "created_at": "2026-09-12T00:00:00Z",
+    "updated_at": "2026-09-12T00:00:00Z",
+    "material": "waste_heat",
+    "method": "heat_recovery",
+    "description": "A heat exchange opportunity may be useful when temperature and cadence are measured.",
+    "required_evidence": [
+      "temperature profile",
+      "distance",
+      "counterparty"
+    ],
+    "status": "opportunity",
+    "source_class": "synthetic_hypothesis"
+  }
+]
