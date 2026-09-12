@@ -10,6 +10,7 @@ const { createConversation, getConversationTranscript, orchestrateMessage, execu
 const { createListing, getListing, patchListing, publishListing, archiveListing, listListings } = require('./domain/listings');
 const { patchRequirement } = require('./domain/requirements');
 const { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers } = require('./domain/requests');
+const { listProjects, createProject, getProject, addParticipation, listParticipations, addReview, listReviews, listPolicies, createScreening, getScreening, knowledgeSearch, searchPrices, listNotifications, markNotificationRead, notificationPreferences, listSavedSearches, createSavedSearch, deleteSavedSearch, report, workflow, workflowTransition } = require('./domain/extensions');
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -118,7 +119,7 @@ function createApp({ store = new Store(), persistence = null } = {}) {
     const requestId = request.headers['x-request-id'] || randomUUID();
     try {
       if (request.method === 'OPTIONS') {
-        response.writeHead(204, { 'access-control-allow-origin': 'http://localhost:5173', 'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS', 'access-control-allow-headers': 'content-type,x-demo-user,x-demo-organization,x-request-id' });
+        response.writeHead(204, { 'access-control-allow-origin': 'http://localhost:5173', 'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'access-control-allow-headers': 'content-type,x-demo-user,x-demo-organization,x-request-id' });
         response.end();
         return;
       }
@@ -140,6 +141,9 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       if (request.method === 'POST' && path === '/api/v1/demo/seed') {
         if (process.env.NODE_ENV === 'production') throw new DomainError('DISABLED_IN_PRODUCTION', 'Demo seed reset is disabled in production', 403);
         const snapshot = store.reset();
+        // Extension-domain records are intentionally in-memory too, so a demo reset
+        // returns the whole API to its seeded baseline.
+        delete store.__carbonBridgeExtensions;
         jsonResponse(response, 200, { status: 'seeded', source: snapshot.source, counts: Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== 'source').map(([key, value]) => [key, value.length])) }, requestId);
         return;
       }
@@ -441,6 +445,129 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         jsonResponse(response, 200, { items: store.findMany('auditEvents', (item) => item.organizationId === actor.organizationId) }, requestId);
         return;
       }
+
+      // NGO projects and review are restricted to organizations with the NGO capability.
+      const isNgo = actor.organization.capabilities?.includes('ngo');
+      if (request.method === 'GET' && path === '/api/v1/projects') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
+        jsonResponse(response, 200, { items: listProjects(store, actor.organizationId) }, requestId);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/projects') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
+        requireRole(actor, ['org_admin', 'reviewer']);
+        jsonResponse(response, 201, createProject(store, { organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId);
+        return;
+      }
+      const projectMatch = path.match(/^\/api\/v1\/projects\/([^/]+)$/);
+      if (request.method === 'GET' && projectMatch) {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
+        jsonResponse(response, 200, getProject(store, projectMatch[1], actor.organizationId), requestId);
+        return;
+      }
+      const participationMatch = path.match(/^\/api\/v1\/projects\/([^/]+)\/participations$/);
+      if (participationMatch && request.method === 'GET') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
+        jsonResponse(response, 200, { items: listParticipations(store, participationMatch[1], actor.organizationId) }, requestId);
+        return;
+      }
+      if (participationMatch && request.method === 'POST') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
+        requireRole(actor, ['org_admin', 'reviewer']);
+        jsonResponse(response, 201, addParticipation(store, { projectId: participationMatch[1], organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId);
+        return;
+      }
+      const reviewMatch = path.match(/^\/api\/v1\/projects\/([^/]+)\/review$/);
+      if (reviewMatch && request.method === 'GET') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Project reviews are available to NGO organizations', 403);
+        jsonResponse(response, 200, { items: listReviews(store, reviewMatch[1], actor.organizationId) }, requestId);
+        return;
+      }
+      if (reviewMatch && request.method === 'POST') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Project reviews are available to NGO organizations', 403);
+        requireRole(actor, ['org_admin', 'reviewer']);
+        jsonResponse(response, 201, addReview(store, { projectId: reviewMatch[1], organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId);
+        return;
+      }
+      // Top-level aliases support the V2 route vocabulary while retaining the
+      // project-scoped routes as the canonical resource representation.
+      if (path === '/api/v1/participations' && request.method === 'GET') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Participations are available to NGO organizations', 403);
+        jsonResponse(response, 200, { items: listParticipations(store, url.searchParams.get('projectId'), actor.organizationId) }, requestId);
+        return;
+      }
+      if (path === '/api/v1/participations' && request.method === 'POST') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Participations are available to NGO organizations', 403);
+        requireRole(actor, ['org_admin', 'reviewer']);
+        const body = await readJson(request);
+        jsonResponse(response, 201, addParticipation(store, { projectId: body.projectId, organizationId: actor.organizationId, userId: actor.userId, payload: body }), requestId);
+        return;
+      }
+      if (path === '/api/v1/review' && request.method === 'GET') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Reviews are available to NGO organizations', 403);
+        jsonResponse(response, 200, { items: listReviews(store, url.searchParams.get('projectId'), actor.organizationId) }, requestId);
+        return;
+      }
+      if (path === '/api/v1/review' && request.method === 'POST') {
+        if (!isNgo) throw new DomainError('FORBIDDEN', 'Reviews are available to NGO organizations', 403);
+        requireRole(actor, ['org_admin', 'reviewer']);
+        const body = await readJson(request);
+        jsonResponse(response, 201, addReview(store, { projectId: body.projectId, organizationId: actor.organizationId, userId: actor.userId, payload: body }), requestId);
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/api/v1/policies') {
+        jsonResponse(response, 200, { items: listPolicies({ jurisdiction: url.searchParams.get('jurisdiction'), mechanism: url.searchParams.get('mechanism'), asOf: url.searchParams.get('asOf') }) }, requestId);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/screenings') {
+        requireRole(actor, ['org_admin', 'reviewer', 'buyer_editor', 'supplier_editor']);
+        jsonResponse(response, 201, createScreening(store, { organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId);
+        return;
+      }
+      const screeningMatch = path.match(/^\/api\/v1\/screenings\/([^/]+)$/);
+      if (request.method === 'GET' && screeningMatch) {
+        jsonResponse(response, 200, getScreening(store, screeningMatch[1], actor.organizationId), requestId);
+        return;
+      }
+      if (request.method === 'GET' && path === '/api/v1/knowledge/search') {
+        requireRole(actor, ['org_admin', 'reviewer', 'buyer_editor', 'supplier_editor', 'viewer']);
+        jsonResponse(response, 200, { items: knowledgeSearch({ query: url.searchParams.get('q') || url.searchParams.get('query'), limit: url.searchParams.get('limit') }) }, requestId);
+        return;
+      }
+      if (request.method === 'GET' && path === '/api/v1/price-observations') {
+        jsonResponse(response, 200, { items: searchPrices({ material: url.searchParams.get('material'), geography: url.searchParams.get('geography'), observationType: url.searchParams.get('observationType'), freshness: url.searchParams.get('freshness') || 'current' }), provenance: 'synthetic_demo' }, requestId);
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/api/v1/notifications') {
+        jsonResponse(response, 200, { items: listNotifications(store, actor.organizationId) }, requestId);
+        return;
+      }
+      const notificationReadMatch = path.match(/^\/api\/v1\/notifications\/([^/]+)\/read$/);
+      if (request.method === 'POST' && notificationReadMatch) {
+        jsonResponse(response, 200, markNotificationRead(store, notificationReadMatch[1], actor.organizationId), requestId);
+        return;
+      }
+      if (path === '/api/v1/notification-preferences') {
+        if (request.method === 'GET') { jsonResponse(response, 200, notificationPreferences(store, actor.organizationId), requestId); return; }
+        if (request.method === 'PATCH') { jsonResponse(response, 200, notificationPreferences(store, actor.organizationId, await readJson(request)), requestId); return; }
+      }
+      if (path === '/api/v1/saved-searches') {
+        if (request.method === 'GET') { jsonResponse(response, 200, { items: listSavedSearches(store, actor.organizationId) }, requestId); return; }
+        if (request.method === 'POST') { jsonResponse(response, 201, createSavedSearch(store, { organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId); return; }
+      }
+      const savedSearchMatch = path.match(/^\/api\/v1\/saved-searches\/([^/]+)$/);
+      if (request.method === 'DELETE' && savedSearchMatch) { deleteSavedSearch(store, savedSearchMatch[1], actor.organizationId); response.writeHead(204, { 'access-control-allow-origin': 'http://localhost:5173', 'x-request-id': requestId }); response.end(); return; }
+      if (request.method === 'GET' && path === '/api/v1/reports') {
+        requireRole(actor, ['org_admin', 'reviewer', 'buyer_editor', 'supplier_editor', 'viewer']);
+        jsonResponse(response, 200, report(store, actor.organizationId), requestId);
+        return;
+      }
+      const workflowMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)$/);
+      if (request.method === 'GET' && workflowMatch) { jsonResponse(response, 200, workflow(store, workflowMatch[1], actor.organizationId), requestId); return; }
+      const workflowTransitionMatch = path.match(/^\/api\/v1\/workflows\/([^/]+)\/(resume|cancel)$/);
+      if (request.method === 'POST' && workflowTransitionMatch) { jsonResponse(response, 200, workflowTransition(store, { id: workflowTransitionMatch[1], organizationId: actor.organizationId, transition: workflowTransitionMatch[2] }), requestId); return; }
 
       throw new DomainError('NOT_FOUND', 'Route was not found', 404);
     } catch (error) {
