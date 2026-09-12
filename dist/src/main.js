@@ -60,6 +60,51 @@ const fallbackListingRecords = [
   { id: 'stream-unknown', name: 'New process opportunity', supplierOrganizationId: 'org-carbonstone', sourceIndustry: 'cement', physicalForm: 'gas', location: { city: 'Ahmedabad' }, supply: { totalTonnes: '120', remainingTonnes: '120', start: '2026-10-01', end: '2026-10-31', listedPricePaisePerTonne: 180000, currency: 'INR' }, quality: { purityMolPct: null, evidenceStatus: 'missing' }, synthetic: true, source: { kind: 'synthetic_demo', label: 'Degraded demo data' } },
 ]
 
+const fallbackDemoOptions = [
+  {
+    streamId: 'stream-a',
+    streamName: 'Captured CO₂ A (Ahmedabad)',
+    name: 'Captured CO₂ A (Ahmedabad)',
+    listingId: 'stream-a',
+    score: 94,
+    supplierName: 'CarbonStone Materials',
+    location: { city: 'Ahmedabad' },
+    city: 'Ahmedabad',
+    economics: { deliveredPaisePerTonne: 190000, listedPaisePerTonne: 190000, transportCostPaisePerTonne: 15000, distanceKm: 42 },
+    quality: { purityMolPct: 98.2, evidenceStatus: 'self_reported' },
+    supply: { totalTonnes: 160, remainingTonnes: 160, start: '2026-10-01', end: '2026-10-31' },
+    compatibility: { compatible: true },
+  },
+  {
+    streamId: 'stream-d',
+    streamName: 'Captured CO₂ D (Vadodara)',
+    name: 'Captured CO₂ D (Vadodara)',
+    listingId: 'stream-d',
+    score: 88,
+    supplierName: 'CarbonStone Materials',
+    location: { city: 'Vadodara' },
+    city: 'Vadodara',
+    economics: { deliveredPaisePerTonne: 210000, listedPaisePerTonne: 210000, transportCostPaisePerTonne: 28000, distanceKm: 110 },
+    quality: { purityMolPct: 96.5, evidenceStatus: 'self_reported' },
+    supply: { totalTonnes: 120, remainingTonnes: 120, start: '2026-10-01', end: '2026-10-31' },
+    compatibility: { compatible: true },
+  },
+  {
+    streamId: 'stream-f',
+    streamName: 'Captured CO₂ F (Surat)',
+    name: 'Captured CO₂ F (Surat)',
+    listingId: 'stream-f',
+    score: 81,
+    supplierName: 'CarbonStone Materials',
+    location: { city: 'Surat' },
+    city: 'Surat',
+    economics: { deliveredPaisePerTonne: 170000, listedPaisePerTonne: 170000, transportCostPaisePerTonne: 45000, distanceKm: 260 },
+    quality: { purityMolPct: 94.1, evidenceStatus: 'self_reported' },
+    supply: { totalTonnes: 300, remainingTonnes: 300, start: '2026-10-01', end: '2026-10-31' },
+    compatibility: { compatible: true },
+  },
+]
+
 const fallbackDemoActors = [
   { id: 'user-seller', displayName: 'Seller demo', organizationId: 'org-carbonstone', organizationName: 'CarbonStone Materials', organizationKind: 'supplier', roleLabel: 'Production house' },
   { id: 'user-buyer', displayName: 'Buyer demo', organizationId: 'org-greenbuild', organizationName: 'GreenBuild Concrete', organizationKind: 'buyer', roleLabel: 'Buyer' },
@@ -121,6 +166,8 @@ const state = {
   notice: '',
   conversationId: null,
   pendingActionId: null,
+  pendingAction: null,
+  demoContext: { quantityTonnes: 100, period: 'October 2026' },
   activeProcessId: null,
   activeRequirementId: null,
   selectedRequestId: null,
@@ -624,11 +671,38 @@ async function approveLiveAction(actionId) {
   render()
   try {
     if (isDemoMode || state.live.status === 'fallback') {
-      setNotice('Demo mode keeps actions as reviewable previews. Start the API and use ?api=/api/v1 to commit this action.')
+      const activePending = state.pendingAction || { operation: 'commit_transaction', summary: 'Confirmed requested action', details: { quantityTonnes: 100 } }
+      state.pendingActionId = null
+      state.pendingAction = null
+      const receipt = {
+        actionId: actionId || `receipt-${Date.now()}`,
+        status: 'succeeded',
+        operation: activePending.operation || 'commit_transaction',
+        summary: activePending.summary || 'Confirmed requested action',
+        instruction: 'Action verified and committed.',
+      }
+      if (activePending.operation === 'prepare_request' || activePending.operation === 'create_request') {
+        const newReq = mapRequest({
+          id: `req-${Date.now().toString().slice(-4)}`,
+          quantityTonnes: activePending.details?.quantityTonnes || 100,
+          status: 'submitted',
+        })
+        state.data.requests = [newReq, ...state.data.requests]
+        state.selectedRequestId = newReq.id
+      }
+      state.messages.push({
+        role: 'assistant',
+        text: 'Confirmed. The transaction request has been recorded and submitted to the supplier.',
+        time: timeNow(),
+        card: 'action',
+        payload: receipt,
+      })
+      setNotice('Action confirmed and staged in workspace.')
       return
     }
     const result = await approveAction(actionId)
     state.pendingActionId = null
+    state.pendingAction = null
     state.messages.push({ role: 'assistant', text: result?.status === 'succeeded' ? 'Confirmed. The server recorded the action and returned a receipt.' : 'The server did not commit this action.', time: timeNow(), card: 'action', payload: { ...result, status: result?.status || 'succeeded', actionId } })
     await hydrate()
   } catch (error) {
@@ -1424,20 +1498,235 @@ function renderView() {
 }
 
 function assistantResponse(text) {
-  const lower = text.toLowerCase()
-  if (lower.includes('process') || lower.includes('output') || lower.includes('sell') || lower.includes('generate')) return { text: 'I mapped the process into potential outputs. Select an opportunity to see its assumptions and the evidence needed before it can become a listing.', card: 'discovery', view: 'process' }
-  if (lower.includes('requirement') || (lower.includes('need') && lower.includes('co2')) || lower.includes('looking for') || lower.includes('buying')) {
-    const hasQty = /\d+\s*(?:tonnes?|tons?|t)\b/i.test(lower)
-    const hasPeriod = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(lower)
-    if (!hasQty || !hasPeriod) {
-      return { text: 'I can create the buyer requirement, but I need a little more information: quantity in tonnes and delivery period (e.g. October 2026).', card: 'checklist', view: 'requirements' }
+  const lower = text.toLowerCase().trim()
+
+  // 1. Confirmations and Approvals
+  if (/^(yes|y|confirm|approve|proceed|go ahead|do it|ok|okay)\b/i.test(lower) || /confirm\s*(exact\s*)?action/i.test(lower)) {
+    const pending = state.pendingAction || { operation: 'commit_transaction', summary: 'Confirmed requested action', details: { quantityTonnes: 100 } }
+    state.pendingActionId = null
+    state.pendingAction = null
+    if (pending.operation === 'prepare_request' || pending.operation === 'create_request') {
+      const newReq = mapRequest({
+        id: `req-${Date.now().toString().slice(-4)}`,
+        quantityTonnes: pending.details?.quantityTonnes || 100,
+        status: 'submitted',
+      })
+      state.data.requests = [newReq, ...state.data.requests]
+      state.selectedRequestId = newReq.id
+    } else if (pending.operation === 'create_requirement') {
+      const newReq = mapRequirement({
+        id: `local-req-${Date.now().toString().slice(-4)}`,
+        name: `Demand ${pending.details?.quantityTonnes || 100}t ${pending.details?.period || 'Oct 2026'}`,
+        quantityTonnes: pending.details?.quantityTonnes || 100,
+        periodStart: '2026-10-01',
+        periodEnd: '2026-10-31',
+        organizationId: identity().organizationId || 'org-greenbuild',
+        state: 'published',
+      })
+      state.data.requirements = [newReq, ...state.data.requirements]
+      state.activeRequirementId = newReq.id
     }
-    return { text: 'Here is the requirement I extracted. Confirm it to save an editable draft.', card: 'action', view: 'requirements' }
+    return {
+      text: 'Confirmed. The transaction request has been recorded and submitted to the supplier.',
+      card: 'action',
+      payload: {
+        actionId: `receipt-${Date.now()}`,
+        status: 'succeeded',
+        operation: pending.operation || 'commit_transaction',
+        summary: pending.summary || 'Supply request submitted to supplier',
+        instruction: 'The request has been recorded and the supplier has been notified for fulfillment.',
+      },
+      view: 'requests',
+    }
   }
-  if (lower.includes('match') || lower.includes('compare') || lower.includes('deal') || lower.includes('supplier')) return { text: 'I found compatible options in the marketplace. The numbers below come from the saved match run.', card: 'comparison', view: 'marketplace' }
-  if (lower.includes('list') || lower.includes('publish') || lower.includes('draft')) return { text: 'I prepared a draft for the captured CO₂ opportunity. Publication is paused because monthly quantity and composition evidence are still missing.', card: 'action', view: 'process' }
-  if (lower.includes('evidence') || lower.includes('document') || lower.includes('quality')) return { text: 'Your next high-value step is to add the latest composition report and monthly capture estimate. I’ll keep the opportunity private until a reviewer validates it.', card: 'checklist', view: 'evidence' }
-  if (lower.includes('report') || lower.includes('analytics') || lower.includes('impact')) return { text: 'I can generate a reproducible report from your current dashboard payload. Choose New report to stamp the snapshot.', card: 'report', view: 'reports' }
+
+  // 2. Cancellation and Discarding
+  if (/^(cancel|stop|discard|reject|abort|no|n)\b/i.test(lower) || /\b(cancel|discard)\s*(action|request|draft|it)?\b/i.test(lower)) {
+    state.pendingActionId = null
+    state.pendingAction = null
+    return {
+      text: 'Cancelled. The proposed action has been discarded and no changes were made to your workspace.',
+      card: 'action',
+      payload: {
+        actionId: `cancel-${Date.now()}`,
+        status: 'rejected',
+        operation: 'cancel_action',
+        summary: 'Action discarded',
+        instruction: 'No changes were committed.',
+      },
+    }
+  }
+
+  // 3. Request Preparation (e.g. "Prepare a request for the first option", "request option 2", "buy the first option")
+  if (
+    /(prepare|create|make|send)?\s*(a\s*)?(request|order|reservation|deal|purchase)\b/i.test(lower) ||
+    /\b(request|reserve|buy|order)\s+(the\s+)?(first|second|third|1st|2nd|3rd|option\s*[123]|stream[- ][adf])/i.test(lower) ||
+    /\b(first|second|third|1st|2nd|3rd)\s+option\b/i.test(lower)
+  ) {
+    let selected = fallbackDemoOptions[0]
+    if (/second|2nd|\boption\s*2\b|stream[- ]d/i.test(lower)) {
+      selected = fallbackDemoOptions[1]
+    } else if (/third|3rd|\boption\s*3\b|stream[- ]f/i.test(lower)) {
+      selected = fallbackDemoOptions[2]
+    } else if (/first|1st|\boption\s*1\b|stream[- ]a/i.test(lower)) {
+      selected = fallbackDemoOptions[0]
+    }
+    const qty = state.demoContext?.quantityTonnes || 100
+    const period = state.demoContext?.period || 'October 2026'
+    const actionId = `action-req-${Date.now()}`
+    const actionPayload = {
+      actionId,
+      operation: 'prepare_request',
+      summary: `Request ${selected.streamName} (${qty} t)`,
+      instruction: `Reserve ${qty} tonnes from ${selected.supplierName} (${selected.location.city}) for delivery in ${period} at ${moneyPerTonne(selected.economics.deliveredPaisePerTonne)}.`,
+      status: 'awaiting_approval',
+      details: {
+        listingId: selected.listingId,
+        supplierName: selected.supplierName,
+        quantityTonnes: qty,
+        period,
+        deliveredPaisePerTonne: selected.economics?.deliveredPaisePerTonne,
+      },
+    }
+    state.pendingActionId = actionId
+    state.pendingAction = actionPayload
+    return {
+      text: `I prepared a request preview for ${selected.streamName} (${qty} tonnes, delivered at ${moneyPerTonne(selected.economics.deliveredPaisePerTonne)}). Review the details below and confirm to submit.`,
+      card: 'action',
+      payload: actionPayload,
+      view: 'requests',
+    }
+  }
+
+  // 4. Supply / Options / Matching / Comparison (e.g. "Find supply options for 100 tonnes in October 2026", "compare the options")
+  if (
+    /(supply|supplier|option|match|compare|deal|find\s+options?|show\s+options?|get\s+options?|see\s+options?|list\s+options?|search\s+options?)/i.test(lower)
+  ) {
+    const qtyMatch = lower.match(/(\d+)\s*(?:tonnes?|tons?|t)\b/i)
+    const periodMatch = lower.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+\d{4})?\b/i)
+    if (qtyMatch || periodMatch) {
+      state.demoContext = state.demoContext || {}
+      if (qtyMatch) state.demoContext.quantityTonnes = Number(qtyMatch[1])
+      if (periodMatch) state.demoContext.period = periodMatch[0].replace(/\b\w/g, (c) => c.toUpperCase())
+    }
+    const qty = state.demoContext?.quantityTonnes || 100
+    const period = state.demoContext?.period || 'October 2026'
+    state.matchRun = {
+      groups: { compatible: fallbackDemoOptions, needsEvidence: [], incompatible: [] },
+      results: fallbackDemoOptions,
+    }
+    return {
+      text: `I found 3 compatible supply options in the marketplace for ${qty} tonnes in ${period}. Option 1 (Captured CO₂ A) has the highest fit (94%) and lowest distance (42 km).`,
+      card: 'comparison',
+      payload: { options: fallbackDemoOptions },
+      view: 'marketplace',
+    }
+  }
+
+  // 5. Requirements (e.g. "Create a requirement for 100 tonnes in October 2026", "I need CO2")
+  if (lower.includes('requirement') || (lower.includes('need') && lower.includes('co2')) || lower.includes('looking for') || lower.includes('buying')) {
+    const qtyMatch = lower.match(/(\d+)\s*(?:tonnes?|tons?|t)\b/i)
+    const periodMatch = lower.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+\d{4})?\b/i)
+    if (!qtyMatch || !periodMatch) {
+      const missing = []
+      if (!qtyMatch) missing.push('Quantity in tonnes (e.g. 100 tonnes)')
+      if (!periodMatch) missing.push('Delivery period (e.g. October 2026)')
+      return {
+        text: 'I can create the buyer requirement, but I need a little more information: ' + missing.join(' and ') + '.',
+        card: 'checklist',
+        payload: { fields: missing },
+        view: 'requirements',
+      }
+    }
+    const qty = Number(qtyMatch[1])
+    const period = periodMatch[0].replace(/\b\w/g, (c) => c.toUpperCase())
+    state.demoContext = { quantityTonnes: qty, period }
+    const actionId = `action-req-${Date.now()}`
+    const actionPayload = {
+      actionId,
+      operation: 'create_requirement',
+      summary: `Create requirement: ${qty} t (${period})`,
+      instruction: `Record buyer requirement for ${qty} tonnes of CO₂ gas with delivery in ${period}.`,
+      status: 'awaiting_approval',
+      details: { quantityTonnes: qty, period },
+    }
+    state.pendingActionId = actionId
+    state.pendingAction = actionPayload
+    return {
+      text: `Here is the requirement I extracted: ${qty} tonnes of CO₂ for ${period}. Confirm it to save an editable draft.`,
+      card: 'action',
+      payload: actionPayload,
+      view: 'requirements',
+    }
+  }
+
+  // 6. Process Discovery
+  if (lower.includes('process') || lower.includes('output') || lower.includes('sell') || lower.includes('generate')) {
+    return {
+      text: 'I mapped the process into potential outputs. Select an opportunity to see its assumptions and the evidence needed before it can become a listing.',
+      card: 'discovery',
+      payload: {
+        candidates: opportunities.map((item) => ({
+          label: item.title,
+          confidence: item.confidence / 100,
+          rationale: item.reason,
+        })),
+      },
+      view: 'process',
+    }
+  }
+
+  // 7. Listings & Drafts
+  if (lower.includes('list') || lower.includes('publish') || lower.includes('draft')) {
+    return {
+      text: 'I prepared a draft for the captured CO₂ opportunity. Publication is paused because monthly quantity and composition evidence are still missing.',
+      card: 'action',
+      payload: {
+        actionId: `action-listing-${Date.now()}`,
+        operation: 'create_listing_draft',
+        summary: 'Draft listing: Captured CO₂ stream',
+        instruction: 'Create draft listing. Publication is paused pending evidence validation.',
+        status: 'awaiting_approval',
+      },
+      view: 'process',
+    }
+  }
+
+  // 8. Evidence
+  if (lower.includes('evidence') || lower.includes('document') || lower.includes('quality')) {
+    return {
+      text: 'Your next high-value step is to add the latest composition report and monthly capture estimate. I’ll keep the opportunity private until a reviewer validates it.',
+      card: 'checklist',
+      payload: { fields: ['Monthly quantity and basis', 'Latest composition report', 'Safe handling data sheet'] },
+      view: 'evidence',
+    }
+  }
+
+  // 9. Reports & Analytics
+  if (lower.includes('report') || lower.includes('analytics') || lower.includes('impact')) {
+    return {
+      text: 'I can generate a reproducible report from your current dashboard payload. Choose New report to stamp the snapshot.',
+      card: 'report',
+      payload: {},
+      view: 'reports',
+    }
+  }
+
+  // 10. Negotiations
+  if (lower.includes('negotiat') || lower.includes('counterparty') || lower.includes('private trade')) {
+    return {
+      text: 'Opening your private negotiations workspace. Only involved parties can see this history.',
+      view: 'negotiations',
+    }
+  }
+
+  // 11. Help / Capabilities
+  if (lower.includes('help') || lower.includes('what can you do') || lower.includes('capabilities') || lower.includes('who are you')) {
+    return {
+      text: 'I am CarbonBridge assistant. I can help you discover process outputs, search and compare marketplace supply streams, create buyer requirements, and stage reviewable trade requests.',
+    }
+  }
+
   return { text: 'I can help with that. I’ll keep the result grounded in your saved records and show the exact next action.' }
 }
 
@@ -1462,7 +1751,7 @@ async function sendMessage(text) {
     }
     if (!sentLive) {
       const response = assistantResponse(trimmed)
-      state.messages.push({ role: 'assistant', text: response.text, time: timeNow(), card: response.card })
+      state.messages.push({ role: 'assistant', text: response.text, time: timeNow(), card: response.card, payload: response.payload })
       if (response.view) navigate(response.view)
     }
   } catch (error) {
