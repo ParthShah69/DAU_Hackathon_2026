@@ -1953,6 +1953,14 @@ function assistantResponse(text) {
     }
   }
 
+  // 8.5 Climate & Reduction Plan
+  if (/(climate\s*plan|reduction\s*plan|emissions?\s*baseline|reduction\s*potential|cut\s*emissions|decarboni[sz]ation)/i.test(lower)) {
+    return {
+      text: 'Opening your facility Climate Plan. This shows Scope 1 process and fuel emissions, Scope 2 electricity use, and ranked evidence-based reduction actions.',
+      view: 'reduction',
+    }
+  }
+
   // 9. Reports & Analytics
   if (lower.includes('report') || lower.includes('analytics') || lower.includes('impact')) {
     return {
