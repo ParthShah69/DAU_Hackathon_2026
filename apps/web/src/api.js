@@ -212,6 +212,26 @@ export async function getDashboard() {
   return apiRequest('/dashboard')
 }
 
+export async function getOrganizationProfile() {
+  return apiRequest('/organization-profile')
+}
+
+export async function saveOrganizationProfile(payload) {
+  return apiRequest('/organization-profile', { method: 'PATCH', body: payload })
+}
+
+export async function submitOrganizationProfile() {
+  return apiRequest('/organization-profile/submit', { method: 'POST', body: {} })
+}
+
+export async function listVerificationQueue() {
+  return apiRequest('/verification-queue')
+}
+
+export async function reviewVerification(submissionId, payload) {
+  return apiRequest(`/verification-queue/${encodeURIComponent(submissionId)}/review`, { method: 'POST', body: payload })
+}
+
 export async function getActivity() {
   return apiRequest('/activity')
 }
@@ -219,6 +239,9 @@ export async function getActivity() {
 export async function listMarketplaceListings(filters = {}) {
   return apiRequest(`/marketplace/listings${queryString({ state: 'published', ...filters })}`)
 }
+export async function listNegotiations() { return apiRequest('/negotiations') }
+export async function createNegotiation(payload) { return apiRequest('/negotiations', { method: 'POST', body: payload }) }
+export async function sendNegotiationMessage(threadId, payload) { return apiRequest(`/negotiations/${encodeURIComponent(threadId)}/messages`, { method: 'POST', body: payload }) }
 
 export async function getListing(listingId) {
   return apiRequest(`/listings/${encodeURIComponent(listingId)}`)
@@ -290,7 +313,7 @@ export async function createAppreciation(payload) {
 
 export async function loadWorkspace(listingFilters = {}) {
   const empty = []
-  const [listings, requirements, requests, capabilities, processes, me, dashboard, activity, projects, balanceRequests, participations, appreciations] = await Promise.all([
+  const [listings, requirements, requests, capabilities, processes, me, dashboard, activity, projects, balanceRequests, participations, appreciations, profile, negotiations] = await Promise.all([
     optionalRequest(`/marketplace/listings${queryString({ state: 'published', ...listingFilters })}`),
     optionalRequest('/requirements'),
     optionalRequest('/requests'),
@@ -303,6 +326,8 @@ export async function loadWorkspace(listingFilters = {}) {
     optionalRequest('/balance-requests'),
     optionalRequest('/participations'),
     optionalRequest('/appreciations'),
+    optionalRequest('/organization-profile'),
+    optionalRequest('/negotiations'),
   ])
   return {
     listings: asItems(listings),
@@ -317,6 +342,8 @@ export async function loadWorkspace(listingFilters = {}) {
     balanceRequests: asItems(balanceRequests),
     participations: asItems(participations),
     appreciations: asItems(appreciations),
+    profile: profile || null,
+    negotiations: asItems(negotiations),
     empty,
   }
 }

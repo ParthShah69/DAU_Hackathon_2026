@@ -6,19 +6,22 @@ const SESSION_TTL_SECONDS = 604800;
 const DEMO_ACTORS = [
   { userId: 'user-seller', email: 'seller@demo.carbonbridge.local' },
   { userId: 'user-buyer', email: 'buyer@demo.carbonbridge.local' },
-  { userId: 'user-reviewer', email: 'reviewer@demo.carbonbridge.local' }
+  { userId: 'user-reviewer', email: 'reviewer@demo.carbonbridge.local' },
+  { userId: 'user-contributor', email: 'contributor@demo.carbonbridge.local' }
 ];
 
 const KIND_CAPABILITIES = {
   supplier: ['supplier'],
   buyer: ['buyer'],
-  ngo: ['ngo']
+  ngo: ['ngo'],
+  contributor: ['contributor']
 };
 
 const KIND_ROLES = {
   supplier: ['org_admin', 'supplier_editor'],
   buyer: ['org_admin', 'buyer_editor'],
-  ngo: ['org_admin', 'ngo_editor', 'reviewer']
+  ngo: ['org_admin', 'ngo_editor', 'reviewer'],
+  contributor: ['org_admin', 'contributor_editor']
 };
 
 function normalizeEmail(email) {
@@ -146,7 +149,7 @@ function seedDemoAccounts(store) {
   }
 }
 
-function register(store, { displayName, email, password, organizationName, organizationKind: kind, city, now = new Date() }) {
+function register(store, { displayName, email, password, organizationName, organizationKind: kind, capabilities, city, now = new Date() }) {
   const normalizedEmail = normalizeEmail(requireValue(email, 'email'));
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) throw new DomainError('VALIDATION_ERROR', 'email must be a valid address');
   if (credentialByEmail(store, normalizedEmail) || store.findOne('users', (item) => normalizeEmail(item.email) === normalizedEmail)) {
@@ -155,7 +158,9 @@ function register(store, { displayName, email, password, organizationName, organ
   const passwordValue = String(requireValue(password, 'password'));
   if (passwordValue.length < 8) throw new DomainError('VALIDATION_ERROR', 'password must be at least 8 characters');
   const organizationKindValue = String(requireValue(kind, 'organizationKind'));
-  if (!KIND_CAPABILITIES[organizationKindValue]) throw new DomainError('VALIDATION_ERROR', 'organizationKind must be supplier, buyer or ngo');
+  if (!KIND_CAPABILITIES[organizationKindValue]) throw new DomainError('VALIDATION_ERROR', 'organizationKind must be supplier, buyer, ngo or contributor');
+  const requestedCapabilities = Array.isArray(capabilities) ? capabilities.map(String).filter((value) => Object.prototype.hasOwnProperty.call(KIND_CAPABILITIES, value)) : [];
+  const organizationCapabilities = [...new Set([organizationKindValue, ...requestedCapabilities])];
   const name = String(requireValue(displayName, 'displayName')).trim().slice(0, 160);
   const orgName = String(requireValue(organizationName, 'organizationName')).trim().slice(0, 160);
   const timestamp = now.toISOString();
@@ -172,7 +177,7 @@ function register(store, { displayName, email, password, organizationName, organ
     id: `org-${randomUUID()}`,
     name: orgName,
     kind: organizationKindValue,
-    capabilities: KIND_CAPABILITIES[organizationKindValue],
+    capabilities: organizationCapabilities,
     status: 'active',
     synthetic: false,
     createdAt: timestamp
@@ -181,7 +186,7 @@ function register(store, { displayName, email, password, organizationName, organ
     id: `membership-${randomUUID()}`,
     userId: user.id,
     organizationId: organization.id,
-    roles: KIND_ROLES[organizationKindValue]
+    roles: [...new Set(organizationCapabilities.flatMap((capability) => KIND_ROLES[capability] || []))]
   });
   if (city) {
     store.insert('sites', {

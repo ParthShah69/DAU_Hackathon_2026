@@ -74,6 +74,29 @@ test('register supplier, login, and read me via Bearer token', async () => {
   assert.equal(me.data.session.method, 'session');
 });
 
+test('role-based onboarding gates publication and supports a multi-capability contributor', async () => {
+  const registered = await request('/api/v1/auth/register', {
+    method: 'POST',
+    body: { displayName: 'Mira Patel', email: 'mira@impact.example', password: 'secure-pass-2026', organizationName: 'Impact Foundry', organizationKind: 'contributor', capabilities: ['supplier'], city: 'Pune' },
+    expectedStatus: 201
+  });
+  assert.deepEqual(registered.data.organization.capabilities.sort(), ['contributor', 'supplier']);
+  assert.ok(registered.data.membership.roles.includes('contributor_editor'));
+  assert.ok(registered.data.membership.roles.includes('supplier_editor'));
+  const token = registered.data.session.token;
+  const profile = await request('/api/v1/organization-profile', { token });
+  assert.equal(profile.data.ready, false);
+  const saved = await request('/api/v1/organization-profile', { method: 'PATCH', token, body: {
+    organizationName: 'Impact Foundry', contactEmail: 'mira@impact.example', legalEntityType: 'Private limited', industry: 'Construction', facilityLocation: 'Pune', annualCaptureEstimate: '400', availableQuantity: '30', supplyFrequency: 'monthly', sourceProcess: 'cement capture', purity: '99.5', form: 'liquid', annualEmissions: '1400', emissionsGap: '380', sustainabilityBudget: '900000', contributionType: 'mixed'
+  } });
+  assert.equal(saved.data.ready, true);
+  const submitted = await request('/api/v1/organization-profile/submit', { method: 'POST', token, body: {} });
+  assert.equal(submitted.data.verificationStatus, 'submitted_for_review');
+  const queue = await request('/api/v1/verification-queue', { user: 'user-reviewer' });
+  const review = await request(`/api/v1/verification-queue/${queue.data.items.find((item) => item.organizationId === registered.data.organization.id).id}/review`, { method: 'POST', user: 'user-reviewer', body: { status: 'verified', note: 'Demo documents reviewed.' } });
+  assert.equal(review.data.status, 'verified');
+});
+
 test('marketplace filter by q and minPurity, and buyer request-from-listing', async () => {
   const filtered = await request('/api/v1/marketplace/listings?q=Ahmedabad&minPurityMolPct=97', { user: 'user-buyer' });
   assert.ok(filtered.data.items.some((item) => item.id === 'stream-a'));

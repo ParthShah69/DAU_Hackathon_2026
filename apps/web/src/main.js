@@ -32,6 +32,14 @@ import {
   acceptBalanceRequest,
   declineBalanceRequest,
   createAppreciation,
+  createParticipation,
+  listNegotiations,
+  createNegotiation,
+  sendNegotiationMessage,
+  saveOrganizationProfile,
+  submitOrganizationProfile,
+  listVerificationQueue,
+  reviewVerification,
   asItems,
 } from './api.js'
 
@@ -52,6 +60,7 @@ const fallbackDemoActors = [
   { id: 'user-seller', displayName: 'Seller demo', organizationId: 'org-carbonstone', organizationName: 'CarbonStone Materials', organizationKind: 'supplier', roleLabel: 'Production house' },
   { id: 'user-buyer', displayName: 'Buyer demo', organizationId: 'org-greenbuild', organizationName: 'GreenBuild Concrete', organizationKind: 'buyer', roleLabel: 'Buyer' },
   { id: 'user-reviewer', displayName: 'Reviewer demo', organizationId: 'org-climateworks', organizationName: 'ClimateWorks Collective', organizationKind: 'ngo', roleLabel: 'NGO' },
+  { id: 'user-contributor', displayName: 'Contributor demo', organizationId: 'org-rivera', organizationName: 'Rivera Foods & Beverages', organizationKind: 'contributor', roleLabel: 'Sustainability contributor' },
 ]
 
 const processSteps = [
@@ -73,6 +82,8 @@ const pathForView = {
   projects: '/projects',
   balance: '/balance',
   appreciation: '/appreciation',
+  verification: '/verification',
+  negotiations: '/negotiations',
 }
 
 const supplierNames = {
@@ -103,11 +114,11 @@ const state = {
   selectedRequestId: null,
   matchRun: null,
   reportGenerated: false,
-  data: { listings: [], requirements: [], requests: [], capabilities: null, processes: [], dashboard: null, activity: [], projects: [], balanceRequests: [], participations: [], appreciations: [], me: null },
+  data: { listings: [], requirements: [], requests: [], capabilities: null, processes: [], dashboard: null, activity: [], projects: [], balanceRequests: [], participations: [], appreciations: [], profile: null, verificationQueue: [], negotiations: [], me: null },
   live: { status: isDemoMode ? 'demo' : 'connecting', error: null },
   auth: { unlocked: hasActiveSession() || hasChosenDemoActor(), tab: 'login', error: '', form: { displayName: '', email: '', password: '', organizationName: '', organizationKind: 'supplier', city: '' } },
   demoActors: fallbackDemoActors.slice(),
-  panels: { settings: false, notifications: false, workspace: false, evidenceNote: false, unavailable: '' },
+  panels: { settings: false, notifications: false, workspace: false, evidenceNote: false, onboarding: false, unavailable: '' },
   evidenceNotes: [],
   messages: [{ role: 'assistant', text: 'Tell me what your process makes, and I’ll map the useful outputs, evidence gaps and next actions for you.', time: '09:41' }],
 }
@@ -123,6 +134,8 @@ function viewFromPath(pathname = globalThis.location?.pathname || '/') {
   if (pathname.startsWith('/projects')) return 'projects'
   if (pathname.startsWith('/balance')) return 'balance'
   if (pathname.startsWith('/appreciation')) return 'appreciation'
+  if (pathname.startsWith('/verification')) return 'verification'
+  if (pathname.startsWith('/negotiations')) return 'negotiations'
   return 'overview'
 }
 
@@ -181,6 +194,7 @@ function inferKind(me = state.data.me, actor = currentDemoActor()) {
   if (orgCaps.includes('supplier')) return 'supplier'
   if (orgCaps.includes('ngo')) return 'ngo'
   if (orgCaps.includes('buyer')) return 'buyer'
+  if (orgCaps.includes('contributor')) return 'contributor'
   const roles = me?.capabilities || me?.session?.capabilities || []
   if (roles.includes('supplier_editor') || roles.includes('supplier')) return 'supplier'
   if (roles.includes('reviewer') || roles.includes('ngo')) return 'ngo'
@@ -193,6 +207,7 @@ function kindLabel(kind) {
   if (kind === 'supplier' || kind === 'production_house') return 'Production house'
   if (kind === 'ngo' || kind === 'reviewer') return 'NGO'
   if (kind === 'buyer') return 'Buyer'
+  if (kind === 'contributor') return 'Sustainability contributor'
   return 'Workspace'
 }
 
@@ -231,7 +246,9 @@ function navItems() {
   if (kind === 'supplier') items.push(['process', 'My processes', '◫', 'Discover'])
   items.push(['marketplace', 'Marketplace', '⌁', 'Trade'])
   if (kind === 'buyer') items.push(['requirements', 'Buyer needs', '◎'])
+  if (kind === 'contributor') items.push(['projects', 'Environmental projects', '▣', 'Impact'])
   items.push(['requests', 'Requests', '↗'])
+  items.push(['negotiations', 'Negotiations', '↔'])
   items.push(['assistant', 'Assistant', '✦'])
   if (kind === 'supplier') {
     items.push(['evidence', 'Evidence', '▣', 'Trust'])
@@ -242,6 +259,7 @@ function navItems() {
     items.push(['balance', 'Balance requests', '◌'])
     items.push(['appreciation', 'Appreciation', '♡'])
   }
+  if (identity().capabilities.includes('reviewer')) items.push(['verification', 'Verification queue', '✓', 'Trust'])
   items.push(['reports', 'Reports', '▥'])
   return items
 }
@@ -398,6 +416,9 @@ function applyWorkspace(workspace) {
   state.data.balanceRequests = workspace?.balanceRequests || []
   state.data.participations = workspace?.participations || []
   state.data.appreciations = workspace?.appreciations || []
+  state.data.profile = workspace?.profile || null
+  state.data.negotiations = workspace?.negotiations || []
+  state.panels.onboarding = Boolean(state.data.profile && !state.data.profile.ready && state.data.profile.verificationStatus === 'draft')
   const latestProcess = state.data.processes.slice().sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))[0]
   if (latestProcess?.rawDescription) state.processText = latestProcess.rawDescription
   if (state.data.listings[0] && !state.data.listings.some((item) => item.id === state.selectedListing)) state.selectedListing = state.data.listings[0].id
@@ -457,6 +478,10 @@ async function hydrate() {
     const workspace = await loadWorkspace(listingFilterPayload())
     applyWorkspace(workspace)
     state.live.status = 'connected'
+    if (identity().capabilities.includes('reviewer')) {
+      const queue = await listVerificationQueue()
+      state.data.verificationQueue = asItems(queue)
+    }
     if (!state.conversationId) {
       const conversation = await createConversation('CarbonBridge workspace assistant')
       state.conversationId = conversation?.id || null
@@ -1030,6 +1055,42 @@ function evidenceNotePanel() {
   return overlayPanel('evidence-note', 'Record evidence note', `<form class="evidence-note-form stacked-form"><label class="field-label" for="evidence-title">What did you observe?</label><input id="evidence-title" name="title" required placeholder="e.g. September stack reading" /><label class="field-label" for="evidence-detail">Note</label><textarea id="evidence-detail" name="detail" rows="4" required placeholder="Quantity, method, date, and who measured it"></textarea><p class="field-hint">Recorded locally — upload service is not in this prototype</p><button class="button button-dark" type="submit">Save note</button></form>`)
 }
 
+async function submitCommitment(form) {
+  const values = new FormData(form)
+  const contributionKind = String(values.get('contributionKind') || '')
+  const amount = Number(values.get('amount') || 0)
+  const payload = { projectId: String(values.get('projectId') || ''), contributionKind, note: String(values.get('note') || '').trim() }
+  if (contributionKind === 'funding') payload.amountPaise = Math.round(amount * 100)
+  else payload.hours = amount
+  if (!payload.projectId || !Number.isFinite(amount) || amount <= 0) { setNotice('Choose a project and enter a positive commitment.'); return }
+  if (!canUseLive()) { setNotice('Commitments need the live API.'); return }
+  state.busy = true; render()
+  try {
+    await createParticipation(payload)
+    const workspace = await loadWorkspace(listingFilterPayload())
+    applyWorkspace(workspace)
+    setNotice('Collaboration request recorded. The NGO can now review the commitment privately.')
+  } catch (error) { setNotice(error.message) } finally { state.busy = false; render() }
+}
+
+function onboardingPanel() {
+  const who = identity()
+  const profile = state.data.profile || { data: {}, percent: 0, verificationStatus: 'draft' }
+  const fieldsByKind = {
+    supplier: [['legalEntityType', 'Legal entity type'], ['industry', 'Industry / sector'], ['facilityLocation', 'Facility location'], ['annualCaptureEstimate', 'Annual CO₂ capture estimate (t)'], ['availableQuantity', 'Available quantity for sale (t)'], ['supplyFrequency', 'Supply frequency'], ['sourceProcess', 'CO₂ source / process'], ['purity', 'Purity (%)'], ['form', 'Phase / form']],
+    buyer: [['industry', 'Industry / use case'], ['facilityLocation', 'Facility location'], ['requiredAmount', 'Required CO₂ amount (t)'], ['requiredFrequency', 'Required frequency'], ['minimumPurity', 'Minimum purity (%)'], ['requiredForm', 'Required phase / form'], ['deliveryLocation', 'Delivery location']],
+    ngo: [['registrationNumber', 'Legal registration number'], ['mission', 'Mission'], ['operationalRegions', 'Operational regions'], ['projectCategory', 'Project category'], ['fundingRequirement', 'Funding requirement']],
+    contributor: [['industry', 'Industry'], ['annualEmissions', 'Annual emissions estimate (tCO₂e)'], ['emissionsGap', 'Current emissions-reduction gap (tCO₂e)'], ['sustainabilityBudget', 'Sustainability budget (₹)'], ['contributionType', 'Preferred contribution type']]
+  }
+  const fields = fieldsByKind[who.kind] || fieldsByKind.buyer
+  return overlayPanel('onboarding', 'Complete your organization profile', `<div class="onboarding-progress"><strong>${profile.percent || 0}% complete</strong><span><i style="width:${profile.percent || 0}%"></i></span><small>Save a draft at any time. Verification submission unlocks publishing and sponsorship requests.</small></div><form class="onboarding-form stacked-form"><input type="hidden" name="organizationName" value="${escapeHtml(who.organizationName)}" /><label class="field-label" for="onboard-email">Authorized contact email</label><input id="onboard-email" name="contactEmail" type="email" required value="${escapeHtml(profile.data?.contactEmail || who.email)}" />${fields.map(([name, label]) => `<label class="field-label" for="onboard-${name}">${label}</label><input id="onboard-${name}" name="${name}" required value="${escapeHtml(profile.data?.[name] || '')}" />`).join('')}<label class="field-label" for="onboard-docs">Verification documents</label><input id="onboard-docs" name="verificationDocuments" placeholder="e.g. Registration certificate, quality report" value="${escapeHtml(profile.data?.verificationDocuments || '')}" /><p class="field-hint">Documents are represented as metadata in this demo; files are never exposed publicly.</p><div class="editor-footer"><button type="button" class="text-button" data-action="close-onboarding">Save later</button><button type="submit" class="button button-dark">Save profile</button><button type="submit" name="submitForReview" value="yes" class="outlined-button">Submit for verification</button></div></form>`)
+}
+
+function verificationView() {
+  const queue = state.data.verificationQueue || []
+  return `${intro('Trust · Admin', 'Verification queue', 'Review organization submissions and record a clear, auditable decision. Demo statuses are not third-party certification.')}<section class="panel verification-panel"><div class="panel-title"><div><span class="eyebrow">Pending review</span><h3>${queue.length} submission${queue.length === 1 ? '' : 's'}</h3></div><button class="filter-button" data-action="refresh-verification">Refresh</button></div>${queue.length ? queue.map((item) => `<article class="verification-row"><div><strong>${escapeHtml(item.organization)}</strong><span>${escapeHtml(readableStatus(item.status))} · submitted ${escapeHtml(item.createdAt || '')}</span><small>${escapeHtml(item.history?.at(-1)?.note || 'No reviewer note')}</small></div><div class="verification-actions"><button class="small-action" data-action="review-verification" data-submission-id="${escapeHtml(item.id)}" data-status="verified">Verify</button><button class="text-button" data-action="review-verification" data-submission-id="${escapeHtml(item.id)}" data-status="needs_changes">Needs changes</button></div></article>`).join('') : '<div class="empty-state">No submissions are waiting for review.</div>'}</section>`
+}
+
 function authScreen() {
   const form = state.auth.form
   const actors = state.demoActors.length ? state.demoActors : fallbackDemoActors
@@ -1073,6 +1134,7 @@ function shell() {
     ${state.panels.settings ? settingsPanel() : ''}
     ${state.panels.notifications ? notificationsPanel() : ''}
     ${state.panels.evidenceNote ? evidenceNotePanel() : ''}
+    ${state.panels.onboarding ? onboardingPanel() : ''}
     ${state.panels.unavailable ? unavailablePanel() : ''}
     ${state.listingDetailOpen ? listingDetailPanel() : ''}
     ${state.createListingOpen ? createListingPanel() : ''}
@@ -1213,7 +1275,8 @@ function projectsView() {
   const who = identity()
   const projects = state.data.projects
   const create = who.kind === 'ngo' ? `<section class="panel"><div class="panel-title"><div><span class="eyebrow">NGO</span><h3>Create a project</h3></div></div><form class="project-create-form stacked-form"><label class="field-label" for="proj-name">Name</label><input id="proj-name" name="name" required /><label class="field-label" for="proj-kind">Kind</label><select id="proj-kind" name="kind"><option value="labor">Labor / planting</option><option value="funding">Funding</option><option value="greening">Greening</option><option value="appreciation">Appreciation</option></select><label class="field-label" for="proj-city">City</label><input id="proj-city" name="city" /><label class="field-label" for="proj-desc">Description</label><textarea id="proj-desc" name="description" rows="3" required></textarea><label class="check-row"><input type="checkbox" name="publish" /> Publish now</label><button class="button button-dark" type="submit">Save project</button></form></section>` : ''
-  return `${intro('NGO · Projects', 'Help without inventing credits.', 'Projects are labor, funding or greening. Buyers may view published work; they cannot treat it as a retired tonne.')}${ngoDisclaimer()}<div class="ngo-layout">${create}<div class="ngo-grid">${projects.length ? projects.map(projectCard).join('') : '<div class="empty-state">No projects loaded.</div>'}</div></div>`
+  const supporter = who.kind === 'contributor' ? `<section class="panel"><div class="panel-title"><div><span class="eyebrow">Corporate commitment</span><h3>Support a verified project</h3></div><span class="draft-badge">Arrangement in progress</span></div><form class="commitment-form stacked-form"><label class="field-label" for="commit-project">Project</label><select id="commit-project" name="projectId">${projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.title || project.name)}</option>`).join('')}</select><label class="field-label" for="commit-kind">Contribution type</label><select id="commit-kind" name="contributionKind"><option value="funding">Fund project</option><option value="labor">Employee volunteer hours</option><option value="greening">Materials / services</option></select><label class="field-label" for="commit-amount">Amount or hours</label><input id="commit-amount" name="amount" type="number" min="1" required /><label class="field-label" for="commit-note">Collaboration note</label><textarea id="commit-note" name="note" rows="3" placeholder="Scope, timing, and reporting requirements"></textarea><button class="button button-dark" type="submit">Send collaboration request</button></form></section>` : ''
+  return `${intro(who.kind === 'contributor' ? 'Impact · Environmental projects' : 'NGO · Projects', who.kind === 'contributor' ? 'Support measurable local work.' : 'Help without inventing credits.', 'Projects are labor, funding or greening. Commitments are visible to the involved organizations and are never carbon-credit certification.')}${ngoDisclaimer()}<div class="ngo-layout">${create}${supporter}<div class="ngo-grid">${projects.length ? projects.map(projectCard).join('') : '<div class="empty-state">No projects loaded.</div>'}</div></div>`
 }
 
 function balanceView() {
@@ -1240,6 +1303,11 @@ function appreciationForm() {
 
 function appreciationView() {
   return `${intro('Appreciation', 'Recognition without tonnes.', 'NGOs and buyers can thank a production house. This is not a certificate and not an offset.')}${ngoDisclaimer()}${appreciationForm()}`
+}
+
+function negotiationsView() {
+  const threads = state.data.negotiations || []
+  return `${intro('Private trade workspace', 'Negotiations', 'Only the buyer and seller involved in an offer can see this history. Demo offers are fictional and do not create a contract.')}<div class="request-layout"><section class="panel request-panel"><div class="panel-title"><div><span class="eyebrow">Open conversations</span><h3>${threads.length} private thread${threads.length === 1 ? '' : 's'}</h3></div></div><div class="request-list">${threads.length ? threads.map((thread) => `<button class="request-row" data-action="select-negotiation" data-thread-id="${escapeHtml(thread.id)}"><div class="avatar avatar-blue">${escapeHtml(initials(thread.counterparty))}</div><div><strong>${escapeHtml(thread.counterparty)}</strong><span>${escapeHtml(thread.summary?.quantity || '')} ${escapeHtml(thread.summary?.unit || '')} · ${escapeHtml(thread.status)}</span></div></button>`).join('') : '<div class="empty-state">No private negotiations yet.</div>'}</div></section><section class="panel request-timeline">${(() => { const thread = threads.find((item) => item.id === state.selectedNegotiationId) || threads[0]; return thread ? `<div class="panel-title"><div><span class="eyebrow">${escapeHtml(thread.counterparty)}</span><h3>${escapeHtml(thread.summary.quantity)} ${escapeHtml(thread.summary.unit)} · ${escapeHtml(thread.summary.purity)}</h3></div>${statusPill(readableStatus(thread.status))}</div><p class="muted">${escapeHtml(thread.summary.priceBasis)} · ${escapeHtml(thread.summary.delivery)} · ${escapeHtml(thread.summary.schedule)}</p><div class="chat-messages">${(thread.messages || []).map((message) => `<div class="message-row ${message.organizationId === identity().organizationId ? 'user' : 'assistant'}"><div class="message-body"><div class="message-bubble">${escapeHtml(message.content)}</div><time>${escapeHtml(message.createdAt)}</time></div></div>`).join('')}</div><form class="negotiation-message-form composer"><input type="hidden" name="threadId" value="${escapeHtml(thread.id)}" /><input name="message" required placeholder="Write a private reply…" /><button class="send-button" type="submit">↑</button></form>` : '<div class="empty-state">Select a negotiation.</div>' } )()}</section></div>`
 }
 
 function assistantCard(kind, payload = {}) {
@@ -1291,6 +1359,8 @@ function renderView() {
   if (state.view === 'projects') return projectsView()
   if (state.view === 'balance') return balanceView()
   if (state.view === 'appreciation') return appreciationView()
+  if (state.view === 'verification') return verificationView()
+  if (state.view === 'negotiations') return negotiationsView()
   return overview()
 }
 
@@ -1385,6 +1455,15 @@ document.addEventListener('click', (event) => {
   if (action === 'close-notifications') { state.panels.notifications = false; render(); return }
   if (action === 'open-evidence-note') { state.panels.evidenceNote = true; render(); return }
   if (action === 'close-evidence-note') { state.panels.evidenceNote = false; render(); return }
+  if (action === 'close-onboarding') { state.panels.onboarding = false; render(); return }
+  if (action === 'refresh-verification') {
+    listVerificationQueue().then((queue) => { state.data.verificationQueue = asItems(queue); render() }).catch((error) => setNotice(error.message))
+    return
+  }
+  if (action === 'review-verification') {
+    reviewVerification(target.dataset.submissionId, { status: target.dataset.status, note: `Demo reviewer marked this ${target.dataset.status.replace('_', ' ')}.` }).then(() => listVerificationQueue()).then((queue) => { state.data.verificationQueue = asItems(queue); setNotice('Verification decision recorded.'); render() }).catch((error) => setNotice(error.message))
+    return
+  }
   if (action === 'close-unavailable') { state.panels.unavailable = ''; render(); return }
   if (action === 'unavailable') { state.panels.unavailable = target.dataset.unavailable || 'Unavailable in this prototype'; render(); return }
   if (action === 'logout') { logoutWorkspace(); return }
@@ -1425,6 +1504,7 @@ document.addEventListener('click', (event) => {
     return
   }
   if (action === 'select-request') { state.selectedRequestId = target.dataset.requestId; render(); return }
+  if (action === 'select-negotiation') { state.selectedNegotiationId = target.dataset.threadId; render(); return }
   if (action === 'accept-request') { manageRequest(target.dataset.requestId, 'accept'); return }
   if (action === 'decline-request') { manageRequest(target.dataset.requestId, 'decline'); return }
   if (action === 'accept-balance') { decideBalanceOffer(target.dataset.requestId, 'accept'); return }
@@ -1465,6 +1545,27 @@ document.addEventListener('submit', (event) => {
   if (event.target.matches('.project-create-form')) { event.preventDefault(); submitProject(event.target); return }
   if (event.target.matches('.appreciation-form')) { event.preventDefault(); submitAppreciation(event.target); return }
   if (event.target.matches('.offer-form')) { event.preventDefault(); offerOnRequest(event.target); return }
+  if (event.target.matches('.commitment-form')) { event.preventDefault(); submitCommitment(event.target); return }
+  if (event.target.matches('.negotiation-message-form')) {
+    event.preventDefault()
+    const values = new FormData(event.target)
+    sendNegotiationMessage(String(values.get('threadId')), { message: String(values.get('message')) }).then(() => loadWorkspace(listingFilterPayload())).then((workspace) => { applyWorkspace(workspace); render() }).catch((error) => setNotice(error.message))
+    return
+  }
+  if (event.target.matches('.onboarding-form')) {
+    event.preventDefault()
+    const values = Object.fromEntries(new FormData(event.target).entries())
+    const submit = values.submitForReview === 'yes'
+    delete values.submitForReview
+    saveOrganizationProfile(values).then(async (profile) => {
+      state.data.profile = profile
+      if (submit) state.data.profile = await submitOrganizationProfile()
+      state.panels.onboarding = false
+      setNotice(submit ? 'Profile submitted for verification.' : 'Organization profile saved as a draft.')
+      render()
+    }).catch((error) => setNotice(error.message))
+    return
+  }
   if (event.target.matches('.evidence-note-form')) {
     event.preventDefault()
     const values = new FormData(event.target)
