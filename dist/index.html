@@ -10,7 +10,12 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>window.__CARBONBRIDGE_CONFIG__ = window.__CARBONBRIDGE_CONFIG__ || { apiBaseUrl: '/api/v1' };</script>
+    <script>
+      // The local preview proxies the prototype API. The public static Site has
+      // no API runtime, so it must stay in its self-contained demo mode.
+      const carbonbridgeLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+      window.__CARBONBRIDGE_CONFIG__ = window.__CARBONBRIDGE_CONFIG__ || (carbonbridgeLocalHost ? { apiBaseUrl: '/api/v1' } : { mode: 'demo' })
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
