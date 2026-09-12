@@ -28,10 +28,10 @@ function saveIdempotency(store, { actorUserId, actorOrganizationId, operation, k
   store.insert('idempotencyRecords', { id: `idempotency-${randomUUID()}`, actorUserId, organizationId: actorOrganizationId, operation, key: String(key), bodyHash: stableHash(payload), response: structuredClone(response), createdAt: store.now() });
 }
 
-function getRequest(store, requestId, actorOrganizationId) {
+function getRequest(store, requestId, actorOrganizationId, now = new Date()) {
   const request = store.findOne('supplyRequests', (item) => item.id === requestId);
   if (!request || (request.buyerOrganizationId !== actorOrganizationId && request.supplierOrganizationId !== actorOrganizationId)) throw new DomainError('NOT_FOUND', 'Request was not found', 404);
-  if (request.status === 'pending_supplier' && request.expiresAt && new Date(request.expiresAt) <= new Date()) {
+  if (request.status === 'pending_supplier' && request.expiresAt && new Date(request.expiresAt) <= now) {
     const expired = store.replace('supplyRequests', request.id, { status: 'expired', version: Number(request.version || 1) + 1, updatedAt: store.now() });
     store.insert('requestEvents', { id: `request-event-${randomUUID()}`, requestId: request.id, actorUserId: null, event: 'expired', createdAt: store.now() });
     return expired;
@@ -92,7 +92,7 @@ function acceptRequest(store, { actorUserId, actorOrganizationId, requestId, exp
   const payload = { requestId, expectedVersion, expectedSupplyVersion };
   const replay = requireIdempotency(store, { actorUserId, actorOrganizationId, operation: 'accept_supply_request', key: idempotencyKey, payload });
   if (replay) return replay;
-  const request = getRequest(store, requestId, actorOrganizationId);
+  const request = getRequest(store, requestId, actorOrganizationId, now);
   if (request.supplierOrganizationId !== actorOrganizationId) throw new DomainError('FORBIDDEN', 'Only the supplier can accept this request', 403);
   if (request.status === 'accepted' && request.reservationId) {
     const existing = { request: structuredClone(request), reservation: structuredClone(store.findOne('reservations', (item) => item.id === request.reservationId)) };
