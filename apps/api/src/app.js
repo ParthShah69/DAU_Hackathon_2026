@@ -1,7 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { Store } = require('./infra/store');
 const { DomainError } = require('./domain/errors');
-const { actorFromRequest, requireRole } = require('./infra/auth');
+const { actorFromRequest, requireRole, tokenFromRequest } = require('./infra/auth');
 const { discoverProcess, getProcess } = require('./domain/process-discovery');
 const { runMatch, getMatchRun } = require('./domain/matching');
 const { createRequirement, listRequirements, getRequirement } = require('./domain/requirements');
@@ -10,20 +10,64 @@ const { createConversation, getConversationTranscript, orchestrateMessage, execu
 const { narrateEvidenceBoundOutput, providerStatus } = require('./infra/ollama-provider');
 const { createListing, getListing, patchListing, publishListing, archiveListing, listListings } = require('./domain/listings');
 const { patchRequirement } = require('./domain/requirements');
-const { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers } = require('./domain/requests');
-const { listProjects, createProject, getProject, addParticipation, listParticipations, addReview, listReviews, listPolicies, createScreening, getScreening, knowledgeSearch, searchPrices, listNotifications, markNotificationRead, notificationPreferences, listSavedSearches, createSavedSearch, deleteSavedSearch, report, workflow, workflowTransition } = require('./domain/extensions');
+const { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers, requestFromListing } = require('./domain/requests');
+const { register, login, logout, listDemoActors, sessionCookie, organizationKind } = require('./domain/accounts');
+const ngo = require('./domain/ngo');
+const {
+  addParticipation,
+  listParticipations: listExtensionParticipations,
+  addReview,
+  listReviews,
+  listPolicies,
+  createScreening,
+  getScreening,
+  knowledgeSearch,
+  searchPrices,
+  listNotifications,
+  markNotificationRead,
+  notificationPreferences,
+  listSavedSearches,
+  createSavedSearch,
+  deleteSavedSearch,
+  report,
+  workflow,
+  workflowTransition
+} = require('./domain/extensions');
 
 const MAX_BODY_BYTES = 1024 * 1024;
+const ALLOWED_ORIGINS = new Set([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173'
+]);
 
-function jsonResponse(res, statusCode, payload, requestId) {
+function allowedOrigin(request) {
+  const origin = request?.headers?.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) return origin;
+  return 'http://localhost:5173';
+}
+
+function corsHeaders(request, extra = {}) {
+  return {
+    'access-control-allow-origin': allowedOrigin(request),
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+    'access-control-allow-headers': 'content-type, authorization, x-demo-user, x-demo-organization, x-request-id, idempotency-key',
+    vary: 'Origin',
+    ...extra
+  };
+}
+
+function jsonResponse(res, statusCode, payload, requestId, request, extraHeaders = {}) {
   const body = JSON.stringify({ data: payload, requestId });
   res.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
     'cache-control': 'no-store',
-    'access-control-allow-origin': 'http://localhost:5173',
-    vary: 'Origin',
-    'x-request-id': requestId
+    'x-request-id': requestId,
+    ...corsHeaders(request),
+    ...extraHeaders
   });
   res.end(body);
 }
@@ -131,22 +175,22 @@ function createApp({ store = new Store(), persistence = null } = {}) {
     const requestId = request.headers['x-request-id'] || randomUUID();
     try {
       if (request.method === 'OPTIONS') {
-        response.writeHead(204, { 'access-control-allow-origin': 'http://localhost:5173', 'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'access-control-allow-headers': 'content-type,x-demo-user,x-demo-organization,x-request-id' });
+        response.writeHead(204, corsHeaders(request));
         response.end();
         return;
       }
       const url = new URL(request.url, 'http://localhost');
       const path = url.pathname.replace(/\/$/, '') || '/';
       if (request.method === 'GET' && (path === '/healthz' || path === '/api/v1/health' || path === '/health/live' || path === '/api/v1/health/live')) {
-        jsonResponse(response, 200, { status: 'ok', service: 'carbonbridge-api', mode: 'prototype', seed: store.seedSource }, requestId);
+        jsonResponse(response, 200, { status: 'ok', service: 'carbonbridge-api', mode: 'prototype', seed: store.seedSource }, requestId, request);
         return;
       }
       if (request.method === 'GET' && (path === '/health/ready' || path === '/api/v1/health/ready')) {
         if (!persistenceStatus.ready()) {
-          jsonResponse(response, 503, { status: 'not_ready', service: 'carbonbridge-api' }, requestId);
+          jsonResponse(response, 503, { status: 'not_ready', service: 'carbonbridge-api' }, requestId, request);
           return;
         }
-        jsonResponse(response, 200, { status: 'ready', service: 'carbonbridge-api', persistence: 'available' }, requestId);
+        jsonResponse(response, 200, { status: 'ready', service: 'carbonbridge-api', persistence: 'available' }, requestId, request);
         return;
       }
 
@@ -156,24 +200,50 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         // Extension-domain records are intentionally in-memory too, so a demo reset
         // returns the whole API to its seeded baseline.
         delete store.__carbonBridgeExtensions;
-        jsonResponse(response, 200, { status: 'seeded', source: snapshot.source, counts: Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== 'source').map(([key, value]) => [key, value.length])) }, requestId);
+        jsonResponse(response, 200, { status: 'seeded', source: snapshot.source, counts: Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== 'source').map(([key, value]) => [key, value.length])) }, requestId, request);
+        return;
+      }
+
+      if (request.method === 'POST' && path === '/api/v1/auth/register') {
+        const body = await readJson(request);
+        const result = register(store, body);
+        jsonResponse(response, 201, result, requestId, request, { 'set-cookie': sessionCookie(result.session.token) });
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/auth/login') {
+        const body = await readJson(request);
+        const result = login(store, body);
+        jsonResponse(response, 200, result, requestId, request, { 'set-cookie': sessionCookie(result.session.token) });
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/auth/logout') {
+        const extracted = tokenFromRequest(request);
+        jsonResponse(response, 200, logout(store, extracted.token), requestId, request, { 'set-cookie': sessionCookie('', { clear: true }) });
+        return;
+      }
+      if (request.method === 'GET' && path === '/api/v1/auth/demo-actors') {
+        jsonResponse(response, 200, { items: listDemoActors(store) }, requestId, request);
         return;
       }
 
       const actor = actorFromRequest(store, request);
 
       if (request.method === 'GET' && path === '/api/v1/me') {
+        const kind = organizationKind(actor.organization);
         jsonResponse(response, 200, {
-          user: { id: actor.user.id, displayName: actor.user.displayName, externalSubject: actor.user.externalSubject },
-          currentOrganization: { id: actor.organization.id, name: actor.organization.name, capabilities: actor.organization.capabilities, status: actor.organization.status },
+          user: { id: actor.user.id, displayName: actor.user.displayName, email: actor.user.email || null, externalSubject: actor.user.externalSubject },
+          currentOrganization: { id: actor.organization.id, name: actor.organization.name, kind, capabilities: actor.organization.capabilities, status: actor.organization.status },
           memberships: store.findMany('memberships', (membership) => membership.userId === actor.userId).map((membership) => ({ organizationId: membership.organizationId, roles: membership.roles })),
-          capabilities: actor.roles
-        }, requestId);
+          capabilities: actor.roles,
+          organizationKind: kind,
+          sites: store.findMany('sites', (site) => site.organizationId === actor.organizationId).map((site) => ({ id: site.id, label: site.label, city: site.city })),
+          session: { authenticated: true, method: actor.sessionMethod || 'demo-header' }
+        }, requestId, request);
         return;
       }
 
       if (request.method === 'GET' && path === '/api/v1/assistant/capabilities') {
-        jsonResponse(response, 200, publicCapabilities(), requestId);
+        jsonResponse(response, 200, publicCapabilities(), requestId, request);
         return;
       }
 
@@ -191,19 +261,29 @@ function createApp({ store = new Store(), persistence = null } = {}) {
             requirements: ownedRequirements.length,
             requests: requests.length,
             pendingRequests: requests.filter((item) => item.status === 'pending_supplier').length,
-            activeReservations: store.findMany('reservations', (reservation) => reservation.status === 'active' && supplyPeriods.some((period) => period.id === reservation.supplyPeriodId)).length
+            activeReservations: store.findMany('reservations', (reservation) => reservation.status === 'active' && supplyPeriods.some((period) => period.id === reservation.supplyPeriodId)).length,
+            ...ngo.ngoDashboardCounts(store, actor)
           },
           availability: { totalTonnes: supplyPeriods.reduce((sum, period) => sum + Number(period.totalTonnes || 0), 0), reservedTonnes: supplyPeriods.reduce((sum, period) => sum + Number(period.reservedTonnes || 0), 0) },
           source: store.seedSource
-        }, requestId);
+        }, requestId, request);
         return;
       }
 
       if (request.method === 'GET' && (path === '/api/v1/marketplace/listings' || path === '/api/v1/listings')) {
         const state = url.searchParams.get('state') || 'published';
-        const sourceIndustry = url.searchParams.get('sourceIndustry');
-        const listings = listListings(store, { actorOrganizationId: actor.organizationId, state, sourceIndustry }).map((stream) => listingSummary(store, stream));
-        jsonResponse(response, 200, { items: listings, count: listings.length, asOf: store.now(), source: store.seedSource }, requestId);
+        const sourceIndustry = url.searchParams.get('sourceIndustry') || null;
+        const listings = listListings(store, {
+          actorOrganizationId: actor.organizationId,
+          state,
+          sourceIndustry,
+          q: url.searchParams.get('q'),
+          physicalForm: url.searchParams.get('physicalForm'),
+          minPurityMolPct: url.searchParams.get('minPurityMolPct'),
+          availableFrom: url.searchParams.get('availableFrom'),
+          availableTo: url.searchParams.get('availableTo')
+        }).map((stream) => listingSummary(store, stream));
+        jsonResponse(response, 200, { items: listings, count: listings.length, asOf: store.now(), source: store.seedSource }, requestId, request);
         return;
       }
 
@@ -211,21 +291,21 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         requireRole(actor, ['org_admin', 'supplier_editor']);
         const body = await readJson(request);
         const stream = createListing(store, { actorOrganizationId: actor.organizationId, payload: body, now: new Date() });
-        jsonResponse(response, 201, listingDetail(store, stream), requestId);
+        jsonResponse(response, 201, listingDetail(store, stream), requestId, request);
         return;
       }
 
       const listingMatch = path.match(/^\/api\/v1\/listings\/([^/]+)$/);
       if (request.method === 'GET' && listingMatch) {
         const stream = getListing(store, listingMatch[1], actor.organizationId);
-        jsonResponse(response, 200, listingDetail(store, stream), requestId);
+        jsonResponse(response, 200, listingDetail(store, stream), requestId, request);
         return;
       }
       if (request.method === 'PATCH' && listingMatch) {
         requireRole(actor, ['org_admin', 'supplier_editor']);
         const body = await readJson(request);
         const stream = patchListing(store, { listingId: listingMatch[1], actorOrganizationId: actor.organizationId, payload: body, now: new Date() });
-        jsonResponse(response, 200, listingDetail(store, stream), requestId);
+        jsonResponse(response, 200, listingDetail(store, stream), requestId, request);
         return;
       }
       const listingPublishMatch = path.match(/^\/api\/v1\/listings\/([^/]+)\/publish$/);
@@ -233,7 +313,7 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         requireRole(actor, ['org_admin', 'supplier_editor']);
         const body = await readJson(request);
         const stream = publishListing(store, { listingId: listingPublishMatch[1], actorOrganizationId: actor.organizationId, expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, now: new Date() });
-        jsonResponse(response, 200, listingDetail(store, stream), requestId);
+        jsonResponse(response, 200, listingDetail(store, stream), requestId, request);
         return;
       }
       const listingArchiveMatch = path.match(/^\/api\/v1\/listings\/([^/]+)\/archive$/);
@@ -241,37 +321,52 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         requireRole(actor, ['org_admin', 'supplier_editor']);
         const body = await readJson(request);
         const stream = archiveListing(store, { listingId: listingArchiveMatch[1], actorOrganizationId: actor.organizationId, expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, now: new Date() });
-        jsonResponse(response, 200, listingDetail(store, stream), requestId);
+        jsonResponse(response, 200, listingDetail(store, stream), requestId, request);
+        return;
+      }
+      const listingRequestMatch = path.match(/^\/api\/v1\/listings\/([^/]+)\/request$/);
+      if (request.method === 'POST' && listingRequestMatch) {
+        requireRole(actor, ['org_admin', 'buyer_editor']);
+        const body = await readJson(request);
+        const created = requestFromListing(store, {
+          actorUserId: actor.userId,
+          actorOrganizationId: actor.organizationId,
+          listingId: listingRequestMatch[1],
+          payload: body,
+          idempotencyKey: request.headers['idempotency-key'],
+          now: new Date()
+        });
+        jsonResponse(response, 201, created, requestId, request);
         return;
       }
       const listingAlternativesMatch = path.match(/^\/api\/v1\/listings\/([^/]+)\/alternative-buyers$/);
       if (request.method === 'POST' && listingAlternativesMatch) {
         requireRole(actor, ['org_admin', 'supplier_editor', 'viewer']);
-        jsonResponse(response, 200, alternativeBuyers(store, { listingId: listingAlternativesMatch[1], actorOrganizationId: actor.organizationId, now: new Date() }), requestId);
+        jsonResponse(response, 200, alternativeBuyers(store, { listingId: listingAlternativesMatch[1], actorOrganizationId: actor.organizationId, now: new Date() }), requestId, request);
         return;
       }
 
       if (path === '/api/v1/listing-drafts' && request.method === 'GET') {
         requireRole(actor, ['org_admin', 'supplier_editor', 'viewer']);
-        jsonResponse(response, 200, { items: listDrafts(store, actor.organizationId) }, requestId);
+        jsonResponse(response, 200, { items: listDrafts(store, actor.organizationId) }, requestId, request);
         return;
       }
       const listingDraftMatch = path.match(/^\/api\/v1\/listing-drafts\/([^/]+)$/);
       if (request.method === 'GET' && listingDraftMatch) {
-        jsonResponse(response, 200, getDraftDetail(store, listingDraftMatch[1], actor.organizationId), requestId);
+        jsonResponse(response, 200, getDraftDetail(store, listingDraftMatch[1], actor.organizationId), requestId, request);
         return;
       }
       if (request.method === 'PATCH' && listingDraftMatch) {
         requireRole(actor, ['org_admin', 'supplier_editor']);
         const body = await readJson(request);
-        jsonResponse(response, 200, patchListingDraft(store, { draftId: listingDraftMatch[1], actorOrganizationId: actor.organizationId, payload: body, now: new Date() }), requestId);
+        jsonResponse(response, 200, patchListingDraft(store, { draftId: listingDraftMatch[1], actorOrganizationId: actor.organizationId, payload: body, now: new Date() }), requestId, request);
         return;
       }
 
       if (request.method === 'POST' && path === '/api/v1/processes/discover') {
         requireRole(actor, ['org_admin', 'supplier_editor', 'buyer_editor']);
         const body = await readJson(request);
-        jsonResponse(response, 200, discoverProcess(store, { actorOrganizationId: actor.organizationId, description: body.description, structured: body.structured, processId: body.processId, now: new Date() }), requestId);
+        jsonResponse(response, 200, discoverProcess(store, { actorOrganizationId: actor.organizationId, description: body.description, structured: body.structured, processId: body.processId, now: new Date() }), requestId, request);
         return;
       }
 
@@ -281,36 +376,36 @@ function createApp({ store = new Store(), persistence = null } = {}) {
           ...structuredClone(process),
           candidates: store.findMany('discoveryCandidates', (candidate) => candidate.processId === process.id)
         }));
-        jsonResponse(response, 200, { items: processes }, requestId);
+        jsonResponse(response, 200, { items: processes }, requestId, request);
         return;
       }
 
       const processMatch = path.match(/^\/api\/v1\/processes\/([^/]+)$/);
       if (request.method === 'GET' && processMatch) {
-        jsonResponse(response, 200, getProcess(store, processMatch[1], actor.organizationId), requestId);
+        jsonResponse(response, 200, getProcess(store, processMatch[1], actor.organizationId), requestId, request);
         return;
       }
 
       if (path === '/api/v1/requirements' && request.method === 'GET') {
         requireRole(actor, ['org_admin', 'buyer_editor', 'viewer']);
-        jsonResponse(response, 200, { items: listRequirements(store, actor.organizationId) }, requestId);
+        jsonResponse(response, 200, { items: listRequirements(store, actor.organizationId) }, requestId, request);
         return;
       }
       if (path === '/api/v1/requirements' && request.method === 'POST') {
         requireRole(actor, ['org_admin', 'buyer_editor']);
         const body = await readJson(request);
-        jsonResponse(response, 201, createRequirement(store, { actorOrganizationId: actor.organizationId, payload: body, state: body.state === 'draft' ? 'draft' : 'published', now: new Date() }), requestId);
+        jsonResponse(response, 201, createRequirement(store, { actorOrganizationId: actor.organizationId, payload: body, state: body.state === 'draft' ? 'draft' : 'published', now: new Date() }), requestId, request);
         return;
       }
       const requirementMatch = path.match(/^\/api\/v1\/requirements\/([^/]+)$/);
       if (request.method === 'GET' && requirementMatch) {
-        jsonResponse(response, 200, getRequirement(store, requirementMatch[1], actor.organizationId), requestId);
+        jsonResponse(response, 200, getRequirement(store, requirementMatch[1], actor.organizationId), requestId, request);
         return;
       }
       if (request.method === 'PATCH' && requirementMatch) {
         requireRole(actor, ['org_admin', 'buyer_editor']);
         const body = await readJson(request);
-        jsonResponse(response, 200, patchRequirement(store, { requirementId: requirementMatch[1], actorOrganizationId: actor.organizationId, payload: body, now: new Date() }), requestId);
+        jsonResponse(response, 200, patchRequirement(store, { requirementId: requirementMatch[1], actorOrganizationId: actor.organizationId, payload: body, now: new Date() }), requestId, request);
         return;
       }
 
@@ -323,12 +418,12 @@ function createApp({ store = new Store(), persistence = null } = {}) {
           const expected = body.expectedRequirementVersion ?? body.expected_requirement_version;
           if (!currentRequirement || Number(expected) !== Number(currentRequirement.version || 1)) throw new DomainError('VERSION_CONFLICT', 'Requirement changed; refresh it before matching', 409);
         }
-        jsonResponse(response, 200, runMatch(store, { requirementId: requestedRequirementId, actorOrganizationId: actor.organizationId, now: new Date() }), requestId);
+        jsonResponse(response, 200, runMatch(store, { requirementId: requestedRequirementId, actorOrganizationId: actor.organizationId, now: new Date() }), requestId, request);
         return;
       }
       const matchRunMatch = path.match(/^\/api\/v1\/(?:matches|match-runs)\/([^/]+)$/);
       if (request.method === 'GET' && matchRunMatch) {
-        jsonResponse(response, 200, getMatchRun(store, matchRunMatch[1], actor.organizationId), requestId);
+        jsonResponse(response, 200, getMatchRun(store, matchRunMatch[1], actor.organizationId), requestId, request);
         return;
       }
       const scenarioMatch = path.match(/^\/api\/v1\/(?:matches|match-runs)\/([^/]+)\/scenarios$/);
@@ -351,23 +446,23 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         const result = runMatch(store, { requirementId: requirement.id, actorOrganizationId: actor.organizationId, requirementOverride: scenarioRequirement, scenarioOf: original.id, now: new Date() });
         result.run.scenario = true;
         result.run.scenarioOf = original.id;
-        jsonResponse(response, 201, result, requestId);
+        jsonResponse(response, 201, result, requestId, request);
         return;
       }
       const receiptMatch = path.match(/^\/api\/v1\/(?:matches|match-runs)\/([^/]+)\/receipt$/);
       if (request.method === 'GET' && receiptMatch) {
-        jsonResponse(response, 200, decisionReceipt(store, { runId: receiptMatch[1], actorOrganizationId: actor.organizationId }), requestId);
+        jsonResponse(response, 200, decisionReceipt(store, { runId: receiptMatch[1], actorOrganizationId: actor.organizationId }), requestId, request);
         return;
       }
 
       if (request.method === 'POST' && path === '/api/v1/conversations') {
         const body = await readJson(request);
-        jsonResponse(response, 201, createConversation(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, title: body.title }), requestId);
+        jsonResponse(response, 201, createConversation(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, title: body.title }), requestId, request);
         return;
       }
       const conversationMatch = path.match(/^\/api\/v1\/conversations\/([^/]+)$/);
       if (request.method === 'GET' && conversationMatch) {
-        jsonResponse(response, 200, getConversationTranscript(store, conversationMatch[1], actor.organizationId), requestId);
+        jsonResponse(response, 200, getConversationTranscript(store, conversationMatch[1], actor.organizationId), requestId, request);
         return;
       }
       const conversationStreamMatch = path.match(/^\/api\/v1\/conversations\/([^/]+)\/messages\/stream$/);
@@ -378,7 +473,7 @@ function createApp({ store = new Store(), persistence = null } = {}) {
           'cache-control': 'no-cache, no-store',
           connection: 'keep-alive',
           'x-request-id': requestId,
-          'access-control-allow-origin': 'http://localhost:5173'
+          ...corsHeaders(request)
         });
         sseEvent(response, 'workflow.started', { conversationId: conversationStreamMatch[1], requestId });
         try {
@@ -394,7 +489,7 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       const conversationMessageMatch = path.match(/^\/api\/v1\/conversations\/([^/]+)\/messages$/);
       if (request.method === 'POST' && conversationMessageMatch) {
         const body = await readJson(request);
-        jsonResponse(response, 200, await enrichAssistantOutput(store, orchestrateMessage(store, { conversationId: conversationMessageMatch[1], actorUserId: actor.userId, actorOrganizationId: actor.organizationId, text: body.message || body.text, now: new Date() })), requestId);
+        jsonResponse(response, 200, await enrichAssistantOutput(store, orchestrateMessage(store, { conversationId: conversationMessageMatch[1], actorUserId: actor.userId, actorOrganizationId: actor.organizationId, text: body.message || body.text, now: new Date() })), requestId, request);
         return;
       }
 
@@ -402,33 +497,33 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       if (request.method === 'GET' && actionMatch) {
         const action = store.findOne('actions', (item) => item.id === actionMatch[1] && item.organizationId === actor.organizationId);
         if (!action) throw new DomainError('NOT_FOUND', 'Action was not found', 404);
-        jsonResponse(response, 200, action, requestId);
+        jsonResponse(response, 200, action, requestId, request);
         return;
       }
       const actionApproveMatch = path.match(/^\/api\/v1\/actions\/([^/]+)\/approve$/);
       if (request.method === 'POST' && actionApproveMatch) {
         const action = store.findOne('actions', (item) => item.id === actionApproveMatch[1]);
         if (!action) throw new DomainError('NOT_FOUND', 'Action was not found', 404);
-        jsonResponse(response, 200, executeAction(store, action, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId }), requestId);
+        jsonResponse(response, 200, executeAction(store, action, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId }), requestId, request);
         return;
       }
 
       if (request.method === 'GET' && path === '/api/v1/requests') {
         const requests = listRequests(store, actor.organizationId);
-        jsonResponse(response, 200, { items: requests }, requestId);
+        jsonResponse(response, 200, { items: requests }, requestId, request);
         return;
       }
       if (request.method === 'POST' && path === '/api/v1/requests') {
         requireRole(actor, ['org_admin', 'buyer_editor']);
         const body = await readJson(request);
         const responseData = createSupplyRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, payload: body, idempotencyKey: request.headers['idempotency-key'], now: new Date() });
-        jsonResponse(response, 201, responseData, requestId);
+        jsonResponse(response, 201, responseData, requestId, request);
         return;
       }
       const requestMatch = path.match(/^\/api\/v1\/requests\/([^/]+)$/);
       if (request.method === 'GET' && requestMatch) {
         const supplyRequest = getRequest(store, requestMatch[1], actor.organizationId);
-        jsonResponse(response, 200, { ...supplyRequest, events: store.findMany('requestEvents', (item) => item.requestId === supplyRequest.id), reservation: supplyRequest.reservationId ? store.findOne('reservations', (item) => item.id === supplyRequest.reservationId) : null }, requestId);
+        jsonResponse(response, 200, { ...supplyRequest, events: store.findMany('requestEvents', (item) => item.requestId === supplyRequest.id), reservation: supplyRequest.reservationId ? store.findOne('reservations', (item) => item.id === supplyRequest.reservationId) : null }, requestId, request);
         return;
       }
       const requestAcceptMatch = path.match(/^\/api\/v1\/requests\/([^/]+)\/accept$/);
@@ -436,25 +531,91 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         requireRole(actor, ['org_admin', 'supplier_editor']);
         const body = await readJson(request);
         const result = acceptRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, requestId: requestAcceptMatch[1], expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, expectedSupplyVersion: body.supplyVersion ?? body.expectedSupplyVersion ?? body.expected_supply_version, idempotencyKey: request.headers['idempotency-key'], now: new Date() });
-        jsonResponse(response, 200, result, requestId);
+        jsonResponse(response, 200, result, requestId, request);
         return;
       }
       const requestDeclineMatch = path.match(/^\/api\/v1\/requests\/([^/]+)\/decline$/);
       if (request.method === 'POST' && requestDeclineMatch) {
         requireRole(actor, ['org_admin', 'supplier_editor']);
         const body = await readJson(request);
-        jsonResponse(response, 200, transitionRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, requestId: requestDeclineMatch[1], expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, idempotencyKey: request.headers['idempotency-key'], transition: 'decline', now: new Date() }), requestId);
+        jsonResponse(response, 200, transitionRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, requestId: requestDeclineMatch[1], expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, idempotencyKey: request.headers['idempotency-key'], transition: 'decline', now: new Date() }), requestId, request);
         return;
       }
       const requestCancelMatch = path.match(/^\/api\/v1\/requests\/([^/]+)\/cancel$/);
       if (request.method === 'POST' && requestCancelMatch) {
         requireRole(actor, ['org_admin', 'buyer_editor']);
         const body = await readJson(request);
-        jsonResponse(response, 200, transitionRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, requestId: requestCancelMatch[1], expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, idempotencyKey: request.headers['idempotency-key'], transition: 'cancel', now: new Date() }), requestId);
+        jsonResponse(response, 200, transitionRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, requestId: requestCancelMatch[1], expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, idempotencyKey: request.headers['idempotency-key'], transition: 'cancel', now: new Date() }), requestId, request);
         return;
       }
       if (request.method === 'GET' && path === '/api/v1/activity') {
-        jsonResponse(response, 200, { items: store.findMany('auditEvents', (item) => item.organizationId === actor.organizationId) }, requestId);
+        jsonResponse(response, 200, { items: store.findMany('auditEvents', (item) => item.organizationId === actor.organizationId) }, requestId, request);
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/api/v1/projects') {
+        jsonResponse(response, 200, { items: ngo.listProjects(store, { actor, kind: url.searchParams.get('kind') }) }, requestId, request);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/projects') {
+        const body = await readJson(request);
+        jsonResponse(response, 201, ngo.createProject(store, { actor, payload: body, now: new Date() }), requestId, request);
+        return;
+      }
+      const projectPublishMatch = path.match(/^\/api\/v1\/projects\/([^/]+)\/publish$/);
+      if (request.method === 'POST' && projectPublishMatch) {
+        jsonResponse(response, 200, ngo.publishProject(store, { actor, projectId: projectPublishMatch[1], now: new Date() }), requestId, request);
+        return;
+      }
+      const projectMatch = path.match(/^\/api\/v1\/projects\/([^/]+)$/);
+      if (request.method === 'GET' && projectMatch) {
+        jsonResponse(response, 200, ngo.getProject(store, { actor, projectId: projectMatch[1] }), requestId, request);
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/api/v1/balance-requests') {
+        jsonResponse(response, 200, { items: ngo.listBalanceRequests(store, { actor }) }, requestId, request);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/balance-requests') {
+        const body = await readJson(request);
+        jsonResponse(response, 201, ngo.createBalanceRequest(store, { actor, payload: body, now: new Date() }), requestId, request);
+        return;
+      }
+      const balanceOfferMatch = path.match(/^\/api\/v1\/balance-requests\/([^/]+)\/offer$/);
+      if (request.method === 'POST' && balanceOfferMatch) {
+        const body = await readJson(request);
+        jsonResponse(response, 200, ngo.offerBalanceSupport(store, { actor, requestId: balanceOfferMatch[1], payload: body, now: new Date() }), requestId, request);
+        return;
+      }
+      const balanceAcceptMatch = path.match(/^\/api\/v1\/balance-requests\/([^/]+)\/accept$/);
+      if (request.method === 'POST' && balanceAcceptMatch) {
+        jsonResponse(response, 200, ngo.acceptBalanceSupport(store, { actor, requestId: balanceAcceptMatch[1], now: new Date() }), requestId, request);
+        return;
+      }
+      const balanceDeclineMatch = path.match(/^\/api\/v1\/balance-requests\/([^/]+)\/decline$/);
+      if (request.method === 'POST' && balanceDeclineMatch) {
+        jsonResponse(response, 200, ngo.declineBalanceSupport(store, { actor, requestId: balanceDeclineMatch[1], now: new Date() }), requestId, request);
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/api/v1/participations') {
+        jsonResponse(response, 200, { items: ngo.listParticipations(store, { actor }) }, requestId, request);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/participations') {
+        const body = await readJson(request);
+        jsonResponse(response, 201, ngo.createParticipation(store, { actor, payload: body, now: new Date() }), requestId, request);
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/api/v1/appreciations') {
+        jsonResponse(response, 200, { items: ngo.listAppreciations(store, { organizationId: url.searchParams.get('organizationId'), actor }) }, requestId, request);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/appreciations') {
+        const body = await readJson(request);
+        jsonResponse(response, 201, ngo.createAppreciation(store, { actor, payload: body, now: new Date() }), requestId, request);
         return;
       }
       if (request.method === 'GET' && path === '/api/v1/assistant/provider') {
@@ -462,61 +623,31 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         return;
       }
 
-      // NGO projects and review are restricted to organizations with the NGO capability.
-      const isNgo = actor.organization.capabilities?.includes('ngo');
-      if (request.method === 'GET' && path === '/api/v1/projects') {
-        if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
-        jsonResponse(response, 200, { items: listProjects(store, actor.organizationId) }, requestId);
-        return;
-      }
-      if (request.method === 'POST' && path === '/api/v1/projects') {
-        if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
-        requireRole(actor, ['org_admin', 'reviewer']);
-        jsonResponse(response, 201, createProject(store, { organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId);
-        return;
-      }
-      const projectMatch = path.match(/^\/api\/v1\/projects\/([^/]+)$/);
-      if (request.method === 'GET' && projectMatch) {
-        if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
-        jsonResponse(response, 200, getProject(store, projectMatch[1], actor.organizationId), requestId);
-        return;
-      }
+      // Nested review/participation remain on the extension domain used by the
+      // existing NGO catalog screens; published projects themselves are served above.
+      const isNgo = actor.organization.capabilities?.includes('ngo') || actor.organization.kind === 'ngo';
       const participationMatch = path.match(/^\/api\/v1\/projects\/([^/]+)\/participations$/);
       if (participationMatch && request.method === 'GET') {
         if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
-        jsonResponse(response, 200, { items: listParticipations(store, participationMatch[1], actor.organizationId) }, requestId);
+        jsonResponse(response, 200, { items: listExtensionParticipations(store, participationMatch[1], actor.organizationId) }, requestId, request);
         return;
       }
       if (participationMatch && request.method === 'POST') {
         if (!isNgo) throw new DomainError('FORBIDDEN', 'Projects are available to NGO organizations', 403);
-        requireRole(actor, ['org_admin', 'reviewer']);
-        jsonResponse(response, 201, addParticipation(store, { projectId: participationMatch[1], organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId);
+        requireRole(actor, ['org_admin', 'reviewer', 'ngo_editor']);
+        jsonResponse(response, 201, addParticipation(store, { projectId: participationMatch[1], organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId, request);
         return;
       }
       const reviewMatch = path.match(/^\/api\/v1\/projects\/([^/]+)\/review$/);
       if (reviewMatch && request.method === 'GET') {
         if (!isNgo) throw new DomainError('FORBIDDEN', 'Project reviews are available to NGO organizations', 403);
-        jsonResponse(response, 200, { items: listReviews(store, reviewMatch[1], actor.organizationId) }, requestId);
+        jsonResponse(response, 200, { items: listReviews(store, reviewMatch[1], actor.organizationId) }, requestId, request);
         return;
       }
       if (reviewMatch && request.method === 'POST') {
         if (!isNgo) throw new DomainError('FORBIDDEN', 'Project reviews are available to NGO organizations', 403);
-        requireRole(actor, ['org_admin', 'reviewer']);
-        jsonResponse(response, 201, addReview(store, { projectId: reviewMatch[1], organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId);
-        return;
-      }
-      // Top-level aliases support the V2 route vocabulary while retaining the
-      // project-scoped routes as the canonical resource representation.
-      if (path === '/api/v1/participations' && request.method === 'GET') {
-        if (!isNgo) throw new DomainError('FORBIDDEN', 'Participations are available to NGO organizations', 403);
-        jsonResponse(response, 200, { items: listParticipations(store, url.searchParams.get('projectId'), actor.organizationId) }, requestId);
-        return;
-      }
-      if (path === '/api/v1/participations' && request.method === 'POST') {
-        if (!isNgo) throw new DomainError('FORBIDDEN', 'Participations are available to NGO organizations', 403);
-        requireRole(actor, ['org_admin', 'reviewer']);
-        const body = await readJson(request);
-        jsonResponse(response, 201, addParticipation(store, { projectId: body.projectId, organizationId: actor.organizationId, userId: actor.userId, payload: body }), requestId);
+        requireRole(actor, ['org_admin', 'reviewer', 'ngo_editor']);
+        jsonResponse(response, 201, addReview(store, { projectId: reviewMatch[1], organizationId: actor.organizationId, userId: actor.userId, payload: await readJson(request) }), requestId, request);
         return;
       }
       if (path === '/api/v1/review' && request.method === 'GET') {
@@ -590,7 +721,7 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       const status = error instanceof DomainError ? error.statusCode : 500;
       const code = error instanceof DomainError ? error.code : 'INTERNAL_ERROR';
       if (status >= 500) console.error(`[${requestId}]`, error);
-      jsonResponse(response, status, { error: { code, message: error.message, details: error.details } }, requestId);
+      jsonResponse(response, status, { error: { code, message: error.message, details: error.details } }, requestId, request);
     }
   };
 }

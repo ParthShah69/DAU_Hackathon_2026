@@ -10,6 +10,7 @@
     {
       "id": "org-carbonstone",
       "name": "CarbonStone Materials",
+      "kind": "supplier",
       "capabilities": ["supplier"],
       "synthetic": true,
       "status": "active"
@@ -17,6 +18,7 @@
     {
       "id": "org-greenbuild",
       "name": "GreenBuild Concrete",
+      "kind": "buyer",
       "capabilities": ["buyer"],
       "synthetic": true,
       "status": "active"
@@ -24,20 +26,21 @@
     {
       "id": "org-climateworks",
       "name": "ClimateWorks Collective",
+      "kind": "ngo",
       "capabilities": ["ngo"],
       "synthetic": true,
       "status": "active"
     }
   ],
   "users": [
-    { "id": "user-seller", "externalSubject": "demo-seller", "displayName": "Seller demo" },
-    { "id": "user-buyer", "externalSubject": "demo-buyer", "displayName": "Buyer demo" },
-    { "id": "user-reviewer", "externalSubject": "demo-reviewer", "displayName": "Reviewer demo" }
+    { "id": "user-seller", "externalSubject": "demo-seller", "displayName": "Seller demo", "email": "seller@demo.carbonbridge.local" },
+    { "id": "user-buyer", "externalSubject": "demo-buyer", "displayName": "Buyer demo", "email": "buyer@demo.carbonbridge.local" },
+    { "id": "user-reviewer", "externalSubject": "demo-reviewer", "displayName": "Reviewer demo", "email": "reviewer@demo.carbonbridge.local" }
   ],
   "memberships": [
     { "userId": "user-seller", "organizationId": "org-carbonstone", "roles": ["org_admin", "supplier_editor"] },
     { "userId": "user-buyer", "organizationId": "org-greenbuild", "roles": ["org_admin", "buyer_editor"] },
-    { "userId": "user-reviewer", "organizationId": "org-climateworks", "roles": ["org_admin", "reviewer"] }
+    { "userId": "user-reviewer", "organizationId": "org-climateworks", "roles": ["org_admin", "ngo_editor", "reviewer"] }
   ],
   "sites": [
     { "id": "site-a", "organizationId": "org-carbonstone", "label": "CarbonStone capture site", "city": "Ahmedabad", "latitude": 23.0225, "longitude": 72.5714 },
@@ -99,5 +102,64 @@
     { "originSiteId": "site-d", "destinationSiteId": "site-buyer", "distanceKm": "40", "method": "synthetic_road_matrix", "provenance": "synthetic_demo" },
     { "originSiteId": "site-f", "destinationSiteId": "site-buyer", "distanceKm": "500", "method": "synthetic_road_matrix", "provenance": "synthetic_demo" },
     { "originSiteId": "site-a", "destinationSiteId": "site-a", "distanceKm": "0", "method": "synthetic_road_matrix", "provenance": "synthetic_demo" }
+  ],
+  "ngoProjects": [
+    {
+      "id": "project-labor-trees",
+      "organizationId": "org-climateworks",
+      "title": "Tree planting and green cover near industrial sites",
+      "kind": "labor",
+      "description": "Volunteer days to plant trees and restore green cover around industrial corridors in Ahmedabad. This is community support, not an emissions credit.",
+      "city": "Ahmedabad",
+      "capacity": "40",
+      "remaining": "28",
+      "unit": "volunteer-days",
+      "carbonFocus": "local green cover near industrial sites",
+      "state": "published",
+      "provenance": "synthetic_demo",
+      "synthetic": true
+    },
+    {
+      "id": "project-funding-greening",
+      "organizationId": "org-climateworks",
+      "title": "Community greening fund",
+      "kind": "funding",
+      "description": "Small grants for neighborhood greening and shade trees. Contributions are support, not a carbon offset or credit retirement.",
+      "city": "Ahmedabad",
+      "capacity": "500000",
+      "remaining": "420000",
+      "unit": "paise",
+      "carbonFocus": "community greening",
+      "state": "published",
+      "provenance": "synthetic_demo",
+      "synthetic": true
+    },
+    {
+      "id": "project-appreciation",
+      "organizationId": "org-climateworks",
+      "title": "Public recognition of verified process improvements",
+      "kind": "appreciation",
+      "description": "Peer and NGO recognition for verified process improvements. Recognition is not a carbon credit and does not net emissions.",
+      "city": "Ahmedabad",
+      "capacity": "100",
+      "remaining": "100",
+      "unit": "recognitions",
+      "carbonFocus": "process improvement recognition",
+      "state": "published",
+      "provenance": "synthetic_demo",
+      "synthetic": true
+    }
+  ],
+  "balanceRequests": [
+    {
+      "id": "balance-carbonstone-open",
+      "organizationId": "org-carbonstone",
+      "estimatedTonnesCo2e": "120",
+      "message": "Excess process CO2 beyond current offtake. Asking ClimateWorks for labor, funding, or greening support — not a credit sale.",
+      "preferredSupport": ["labor", "funding", "greening"],
+      "city": "Ahmedabad",
+      "status": "open",
+      "synthetic": true
+    }
   ]
 }

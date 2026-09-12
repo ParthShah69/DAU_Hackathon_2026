@@ -20,6 +20,27 @@ function ownedSite(store, siteId, organizationId) {
   return site;
 }
 
+function resolveListingSite(store, actorOrganizationId, payload) {
+  const siteId = payload.siteId ?? payload.supplierSiteId ?? payload.supplier_site_id;
+  if (siteId) return ownedSite(store, siteId, actorOrganizationId);
+  const city = payload.city ? String(payload.city).trim().slice(0, 120) : '';
+  const owned = store.findMany('sites', (item) => item.organizationId === actorOrganizationId);
+  if (city) {
+    const match = owned.find((item) => String(item.city || '').toLowerCase() === city.toLowerCase());
+    if (match) return match;
+    return store.insert('sites', {
+      id: `site-${randomUUID()}`,
+      organizationId: actorOrganizationId,
+      label: `${city} site`,
+      city,
+      latitude: null,
+      longitude: null
+    });
+  }
+  if (owned[0]) return owned[0];
+  throw new DomainError('VALIDATION_ERROR', 'siteId or city is required to create a listing');
+}
+
 function normalizePeriod(period, streamId) {
   const start = dateOnly(requireValue(period.start ?? period.start_date, 'supply period start'), 'supply period start');
   const end = dateOnly(requireValue(period.end ?? period.end_date, 'supply period end'), 'supply period end');
@@ -72,8 +93,8 @@ function normalizeQuality(store, streamId, quality, now) {
 }
 
 function createListing(store, { actorOrganizationId, payload, now = new Date() }) {
-  const siteId = requireValue(payload.siteId ?? payload.supplierSiteId ?? payload.supplier_site_id, 'siteId');
-  ownedSite(store, siteId, actorOrganizationId);
+  const site = resolveListingSite(store, actorOrganizationId, payload);
+  const siteId = site.id;
   const physicalForm = String(payload.physicalForm ?? payload.physical_form ?? 'gas');
   if (!PHYSICAL_FORMS.has(physicalForm)) throw new DomainError('VALIDATION_ERROR', 'physicalForm must be gas, liquid or solid');
   const stream = store.insert('streams', {
@@ -148,8 +169,37 @@ function archiveListing(store, { listingId, actorOrganizationId, expectedVersion
   return store.replace('streams', stream.id, { state: 'archived', version: Number(stream.version || 1) + 1, updatedAt: now.toISOString() });
 }
 
-function listListings(store, { actorOrganizationId = null, state = 'published', sourceIndustry = null } = {}) {
-  return store.findMany('streams', (stream) => stream.state === state && (!sourceIndustry || stream.sourceIndustry === sourceIndustry) && (state === 'published' || stream.organizationId === actorOrganizationId)).map((stream) => structuredClone(stream));
+function latestQuality(store, streamId) {
+  return store.findMany('qualityReports', (item) => item.streamId === streamId).sort((left, right) => String(right.sampledAt).localeCompare(String(left.sampledAt)))[0] || null;
+}
+
+function listListings(store, { actorOrganizationId = null, state = 'published', sourceIndustry = null, q = null, physicalForm = null, minPurityMolPct = null, availableFrom = null, availableTo = null } = {}) {
+  const query = q ? String(q).trim().toLowerCase() : '';
+  const minPurity = minPurityMolPct === undefined || minPurityMolPct === null || minPurityMolPct === '' ? null : Number(minPurityMolPct);
+  const from = availableFrom ? String(availableFrom) : null;
+  const to = availableTo ? String(availableTo) : null;
+  return store.findMany('streams', (stream) => {
+    if (stream.state !== state) return false;
+    if (state !== 'published' && stream.organizationId !== actorOrganizationId) return false;
+    if (sourceIndustry && stream.sourceIndustry !== sourceIndustry) return false;
+    if (physicalForm && stream.physicalForm !== physicalForm) return false;
+    if (query) {
+      const site = store.findOne('sites', (item) => item.id === stream.siteId);
+      const haystack = `${stream.name || ''} ${stream.sourceIndustry || ''} ${site?.city || ''}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    if (minPurity !== null) {
+      if (!Number.isFinite(minPurity)) return false;
+      const quality = latestQuality(store, stream.id);
+      if (!quality || Number(quality.purityMolPct) < minPurity) return false;
+    }
+    if (from || to) {
+      const periods = store.findMany('supplyPeriods', (item) => item.streamId === stream.id);
+      const overlaps = periods.some((period) => (!to || period.start <= to) && (!from || period.end >= from));
+      if (!overlaps) return false;
+    }
+    return true;
+  }).map((stream) => structuredClone(stream));
 }
 
 module.exports = { PHYSICAL_FORMS, STREAM_STATES, createListing, getListing, patchListing, publishListing, archiveListing, listListings };

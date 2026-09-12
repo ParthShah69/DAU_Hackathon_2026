@@ -26,7 +26,13 @@ const COLLECTIONS = [
   'requestEvents',
   'reservations',
   'auditEvents',
-  'idempotencyRecords'
+  'idempotencyRecords',
+  'credentials',
+  'sessions',
+  'ngoProjects',
+  'balanceRequests',
+  'participations',
+  'appreciations'
 ];
 
 function clone(value) {
@@ -54,6 +60,8 @@ class Store {
       }
     }
     this.seedSource = clone(seed.source || { kind: 'unknown' });
+    const { seedDemoAccounts } = require('../domain/accounts');
+    seedDemoAccounts(this);
     return this.snapshot();
   }
 

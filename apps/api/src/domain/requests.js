@@ -1,6 +1,7 @@
 const { createHash, randomUUID } = require('node:crypto');
 const { DomainError, requireValue } = require('./errors');
 const { runMatch } = require('./matching');
+const { createRequirement, getRequirement } = require('./requirements');
 
 function stableHash(value) {
   return createHash('sha256').update(JSON.stringify(sortKeys(value))).digest('hex');
@@ -163,4 +164,58 @@ function alternativeBuyers(store, { listingId, actorOrganizationId, now = new Da
   return { listingId, matches };
 }
 
-module.exports = { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers };
+function requestFromListing(store, { actorUserId, actorOrganizationId, listingId, payload = {}, idempotencyKey, now = new Date() }) {
+  const stream = store.findOne('streams', (item) => item.id === listingId);
+  if (!stream || stream.state !== 'published') throw new DomainError('NOT_FOUND', 'Listing was not found', 404);
+  let requirement;
+  if (payload.requirementId) {
+    requirement = getRequirement(store, payload.requirementId, actorOrganizationId);
+  } else {
+    const site = store.findMany('sites', (item) => item.organizationId === actorOrganizationId)[0];
+    if (!site) throw new DomainError('VALIDATION_ERROR', 'Create a site before requesting supply from a listing', 422);
+    requirement = createRequirement(store, {
+      actorOrganizationId,
+      payload: {
+        siteId: site.id,
+        name: payload.name || `Request for ${stream.name}`,
+        periodStart: payload.periodStart,
+        periodEnd: payload.periodEnd,
+        quantityTonnes: payload.quantityTonnes,
+        minimumPurityMolPct: payload.minimumPurityMolPct ?? 0,
+        acceptableForms: payload.acceptableForms || [stream.physicalForm],
+        maxDistanceKm: payload.maxDistanceKm,
+        maxDeliveredPaisePerTonne: payload.maxDeliveredPaisePerTonne,
+        limits: payload.limits || []
+      },
+      state: 'published',
+      now
+    });
+  }
+  const match = runMatch(store, { requirementId: requirement.id, actorOrganizationId, now });
+  const result = match.results.find((item) => item.streamId === listingId);
+  if (!result) throw new DomainError('NOT_FOUND', 'Listing was not evaluated for this requirement', 404);
+  if (result.status !== 'compatible') {
+    throw new DomainError('MATCH_NOT_COMPATIBLE', 'Listing is not compatible with this requirement', 422, {
+      status: result.status,
+      checks: result.checks,
+      result: structuredClone(result),
+      groups: match.groups
+    });
+  }
+  const period = store.findOne('supplyPeriods', (item) => item.id === result.supplyPeriodId);
+  if (!period) throw new DomainError('NOT_FOUND', 'Supply period was not found', 404);
+  return createSupplyRequest(store, {
+    actorUserId,
+    actorOrganizationId,
+    payload: {
+      matchResultId: result.id,
+      quantityTonnes: requirement.quantityTonnes,
+      expectedSupplyVersion: Number(period.version || 1),
+      expectedRequirementVersion: Number(requirement.version || 1)
+    },
+    idempotencyKey: String(idempotencyKey || `listing-request-${randomUUID()}`),
+    now
+  });
+}
+
+module.exports = { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers, requestFromListing };
