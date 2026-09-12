@@ -1903,6 +1903,16 @@ function assistantResponse(text) {
     }
   }
 
+  // 7.8 Publication Readiness & Paused Verification (e.g. "Why is publication paused?", "Why can't I publish?")
+  if (/(why\s+is\s+publication\s+paused|why\s+can't\s+i\s+publish|why\s+paused|publication\s+paused|publish\s+criteria|readiness\s*status)/i.test(lower)) {
+    return {
+      text: 'Publication is strictly paused until evidence validation is complete. In CarbonBridge, unverified opportunities are treated as hypotheses and cannot become public marketplace listings until (1) monthly measured capture volume is verified and (2) an accredited lab CO₂ composition report is uploaded.',
+      card: 'checklist',
+      payload: { fields: ['Monthly measured volume evidence', 'Lab chemical composition analysis', 'Safety handling data sheet'] },
+      view: 'evidence',
+    }
+  }
+
   // 8. Evidence & Lab Reports
   if (lower.includes('evidence') || lower.includes('document') || lower.includes('quality') || lower.includes('lab') || lower.includes('certificate')) {
     return {
