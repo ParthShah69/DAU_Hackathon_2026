@@ -11,6 +11,7 @@ const queryConfig = typeof globalThis.location === 'undefined' ? new URLSearchPa
 export const SESSION_STORAGE_KEY = 'carbonbridge.session'
 export const DEMO_USER_STORAGE_KEY = 'carbonbridge.demoUser'
 export const DEMO_ORG_STORAGE_KEY = 'carbonbridge.demoOrganization'
+export const LOCAL_WORKSPACES_STORAGE_KEY = 'carbonbridge.localWorkspaces'
 
 export const apiBaseUrl = String(runtimeConfig.apiBaseUrl || queryConfig.get('api') || '').replace(/\/$/, '')
 export const isDemoMode = runtimeConfig.mode === 'demo' || apiBaseUrl.length === 0
@@ -210,6 +211,25 @@ export async function getCurrentIdentity() {
 
 export async function getDashboard() {
   return apiRequest('/dashboard')
+}
+
+function localWorkspaces() {
+  try {
+    const value = JSON.parse(readStorage(LOCAL_WORKSPACES_STORAGE_KEY) || '{}')
+    return value && typeof value === 'object' ? value : {}
+  } catch { return {} }
+}
+
+export function saveLocalWorkspace(workspace) {
+  const email = String(workspace?.email || '').trim().toLowerCase()
+  if (!email) return
+  const saved = localWorkspaces()
+  saved[email] = { email, displayName: String(workspace.displayName || ''), organizationName: String(workspace.organizationName || ''), organizationKind: String(workspace.organizationKind || 'buyer') }
+  writeStorage(LOCAL_WORKSPACES_STORAGE_KEY, JSON.stringify(saved))
+}
+
+export function getLocalWorkspace(email) {
+  return localWorkspaces()[String(email || '').trim().toLowerCase()] || null
 }
 
 export async function getOrganizationProfile() {

@@ -69,6 +69,8 @@ test('register supplier, login, and read me via Bearer token', async () => {
     body: { email: 'kiln@example.com', password: 'secure-pass-2026' },
     expectedStatus: 200
   });
+  assert.equal(login.data.organization.kind, 'supplier');
+  assert.ok(login.data.membership.roles.includes('supplier_editor'));
   const me = await request('/api/v1/me', { token: login.data.session.token });
   assert.equal(me.data.user.email, 'kiln@example.com');
   assert.equal(me.data.organizationKind, 'supplier');

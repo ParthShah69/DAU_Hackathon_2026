@@ -17,6 +17,8 @@ import {
   persistDemoActor,
   clearSession,
   clearDemoActor,
+  saveLocalWorkspace,
+  getLocalWorkspace,
   hasChosenDemoActor,
   hasActiveSession,
   getSessionToken,
@@ -1049,6 +1051,7 @@ async function submitAuth(kind, form) {
         return
       }
       if (isDemoMode) {
+        saveLocalWorkspace(payload)
         persistSession({ token: `local-${Date.now()}`, user: { displayName: payload.displayName, email: payload.email } })
         state.data.me = { user: { displayName: payload.displayName, email: payload.email }, currentOrganization: { name: payload.organizationName, kind: payload.organizationKind, capabilities: [payload.organizationKind] }, memberships: [], capabilities: [payload.organizationKind === 'ngo' ? 'reviewer' : payload.organizationKind === 'buyer' ? 'buyer_editor' : 'supplier_editor'], session: { local: true } }
         state.auth.unlocked = true
@@ -1069,11 +1072,14 @@ async function submitAuth(kind, form) {
       return
     }
     if (isDemoMode) {
-      persistSession({ token: `local-${Date.now()}`, user: { displayName: email.split('@')[0], email } })
-      state.data.me = { user: { displayName: email.split('@')[0], email }, currentOrganization: { name: 'Local workspace', kind: 'buyer', capabilities: ['buyer'] }, memberships: [], capabilities: ['buyer_editor'], session: { local: true } }
+      const workspace = getLocalWorkspace(email)
+      if (!workspace) { state.auth.error = 'No browser-demo workspace exists for this email. Register it in this browser or use a demo workspace.'; return }
+      const editorRole = workspace.organizationKind === 'supplier' ? 'supplier_editor' : workspace.organizationKind === 'ngo' ? 'ngo_editor' : workspace.organizationKind === 'contributor' ? 'contributor_editor' : 'buyer_editor'
+      persistSession({ token: `local-${Date.now()}`, user: { displayName: workspace.displayName || email.split('@')[0], email } })
+      state.data.me = { user: { displayName: workspace.displayName || email.split('@')[0], email }, currentOrganization: { name: workspace.organizationName || 'Local workspace', kind: workspace.organizationKind, capabilities: [workspace.organizationKind] }, memberships: [], capabilities: [editorRole], session: { local: true } }
       state.auth.unlocked = true
       seedAssistantGreeting()
-      setNotice('Signed in locally. Demo mode has no password server.')
+      setNotice(`Signed in to your ${kindLabel(workspace.organizationKind).toLowerCase()} browser-demo workspace.`)
       return
     }
     const result = await loginAccount({ email, password })
