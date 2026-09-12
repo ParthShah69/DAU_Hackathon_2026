@@ -215,6 +215,9 @@ export async function getDashboard() {
 export async function getOrganizationProfile() {
   return apiRequest('/organization-profile')
 }
+export async function getEmissionsAssessment() {
+  return apiRequest('/emissions-assessment')
+}
 
 export async function saveOrganizationProfile(payload) {
   return apiRequest('/organization-profile', { method: 'PATCH', body: payload })
@@ -317,7 +320,7 @@ export async function createAppreciation(payload) {
 
 export async function loadWorkspace(listingFilters = {}) {
   const empty = []
-  const [listings, demands, requirements, requests, capabilities, processes, me, dashboard, activity, projects, balanceRequests, participations, appreciations, profile, negotiations] = await Promise.all([
+  const [listings, demands, requirements, requests, capabilities, processes, me, dashboard, activity, projects, balanceRequests, participations, appreciations, profile, assessment, negotiations] = await Promise.all([
     optionalRequest(`/marketplace/listings${queryString({ state: 'published', ...listingFilters })}`),
     optionalRequest('/marketplace/demands'),
     optionalRequest('/requirements'),
@@ -332,6 +335,7 @@ export async function loadWorkspace(listingFilters = {}) {
     optionalRequest('/participations'),
     optionalRequest('/appreciations'),
     optionalRequest('/organization-profile'),
+    optionalRequest('/emissions-assessment'),
     optionalRequest('/negotiations'),
   ])
   return {
@@ -349,6 +353,7 @@ export async function loadWorkspace(listingFilters = {}) {
     participations: asItems(participations),
     appreciations: asItems(appreciations),
     profile: profile || null,
+    assessment: assessment || null,
     negotiations: asItems(negotiations),
     empty,
   }
