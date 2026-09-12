@@ -495,6 +495,7 @@ async function hydrate() {
     state.live.status = 'fallback'
     state.live.error = error.message
     state.data.listings = fallbackListingRecords.map((record) => mapListing(record))
+    state.data.negotiations = fallbackNegotiations
     setNotice(`Live API unavailable. Showing degraded demo data. ${error.message}`)
   }
   render()
@@ -557,9 +558,11 @@ async function analyzeProcess() {
   }
   state.analysisRun = false
   state.busy = true
-  render()
+  // Enter the process workspace immediately; analysis is a page action, not a
+  // hidden overview action. This also keeps the static public demo usable.
+  navigate('process')
   try {
-    if (!isDemoMode) {
+    if (canUseLive()) {
       const result = await discoverProcess(description)
       state.activeProcessId = result.process?.id || null
       replaceOpportunities(result.candidates || [])
