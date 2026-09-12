@@ -52,6 +52,10 @@ export async function health() {
   return apiRequest('/health')
 }
 
+export async function getCurrentIdentity() {
+  return apiRequest('/me')
+}
+
 export async function loadWorkspace() {
   const [listings, requirements, requests, capabilities, processes] = await Promise.all([
     apiRequest('/marketplace/listings'),
@@ -97,4 +101,32 @@ export async function requestAction(requestId, action, version) {
     body: { version },
     headers: { 'Idempotency-Key': `web-${action}-${requestId}-${version}` },
   })
+}
+
+export async function getListing(listingId) {
+  return apiRequest(`/listings/${encodeURIComponent(listingId)}`)
+}
+
+export async function createListing(payload) {
+  return apiRequest('/listings', { method: 'POST', body: payload })
+}
+
+export async function patchListing(listingId, payload) {
+  return apiRequest(`/listings/${encodeURIComponent(listingId)}`, { method: 'PATCH', body: payload })
+}
+
+export async function publishListing(listingId, version) {
+  return apiRequest(`/listings/${encodeURIComponent(listingId)}/publish`, { method: 'POST', body: { version } })
+}
+
+export async function createSupplyRequest(payload) {
+  return apiRequest('/requests', { method: 'POST', body: payload, headers: { 'Idempotency-Key': `web-request-${crypto.randomUUID()}` } })
+}
+
+export async function getMatchReceipt(matchId) {
+  return apiRequest(`/matches/${encodeURIComponent(matchId)}/receipt`)
+}
+
+export async function createMatchScenario(matchId, overrides) {
+  return apiRequest(`/matches/${encodeURIComponent(matchId)}/scenarios`, { method: 'POST', body: { overrides } })
 }

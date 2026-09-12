@@ -8,6 +8,14 @@ import {
   runMatches,
   createRequirement,
   requestAction,
+  getListing,
+  createListing,
+  patchListing,
+  publishListing,
+  createSupplyRequest,
+  getMatchReceipt,
+  createMatchScenario,
+  getCurrentIdentity,
 } from './api.js'
 
 const opportunities = [
@@ -37,7 +45,7 @@ const processSteps = [
 const state = {
   view: viewFromPath(),
   assistantOpen: true,
-  selectedListing: 'stream-a',
+  selectedListing: (globalThis.location?.pathname.match(/^\/listings\/([^/]+)/) || [])[1] || 'stream-a',
   selectedListings: ['stream-a'],
   marketQuery: '',
   processText: 'We ferment molasses to produce ethanol. The gas separation stage creates a CO₂-rich stream, then we purify and compress it. We currently do not measure the exact monthly quantity.',
@@ -49,7 +57,13 @@ const state = {
   activeProcessId: null,
   activeRequirementId: null,
   matchRun: null,
-  data: { listings: [], requirements: [], requests: [], capabilities: null },
+  listingDetail: null,
+  listingEditor: null,
+  receipt: null,
+  matchScenario: null,
+  marketPage: 1,
+  marketFilters: { evidence: 'all', material: 'all' },
+  data: { listings: [], requirements: [], requests: [], capabilities: null, identity: null },
   live: { status: isDemoMode ? 'demo' : 'connecting', error: null },
   messages: [
     { role: 'assistant', text: 'Hi Ananya. Tell me what your process makes, and I’ll map the useful outputs, evidence gaps and next actions for you.', time: '09:41' },
@@ -233,13 +247,15 @@ async function hydrate() {
   }
   state.live.status = 'connecting'
   try {
-    const workspace = await loadWorkspace()
+    const [workspace, identity] = await Promise.all([loadWorkspace(), getCurrentIdentity()])
     applyWorkspace(workspace)
+    state.data.identity = identity
     state.live.status = 'connected'
     if (!state.conversationId) {
       const conversation = await createConversation('CarbonBridge workspace assistant')
       state.conversationId = conversation?.id || null
     }
+    if (globalThis.location?.pathname.startsWith('/listings/') && state.selectedListing) await openListing(state.selectedListing)
   } catch (error) {
     state.live.status = 'fallback'
     state.live.error = error.message
@@ -423,16 +439,97 @@ async function manageRequest(requestId, action) {
   }
 }
 
+async function openListing(id) {
+  state.selectedListing = id
+  const listing = liveListings().find((item) => item.id === id)
+  state.listingDetail = listing || null
+  if (!isDemoMode && state.live.status === 'connected') {
+    try { state.listingDetail = mapListing(await getListing(id)) } catch (error) { setNotice(error.message) }
+  }
+  render()
+}
+
+async function saveListing(form) {
+  const value = new FormData(form)
+  const name = String(value.get('name') || '').trim()
+  const totalTonnes = Number(value.get('totalTonnes'))
+  const price = Number(value.get('price'))
+  const purity = Number(value.get('purity'))
+  const start = String(value.get('start') || '')
+  const end = String(value.get('end') || '')
+  if (!name || !totalTonnes || !price || !purity || !start || !end) return setNotice('Complete name, quantity, price, purity and availability before saving.')
+  const payload = { name, siteId: 'site-a', sourceIndustry: String(value.get('industry') || 'cement'), physicalForm: 'gas', co2Origin: 'point_source', supplyPeriods: [{ start, end, totalTonnes, minimumOrderTonnes: Number(value.get('minimumOrderTonnes') || 0), listedPricePaisePerTonne: Math.round(price * 100), currency: 'INR' }], quality: { purityMolPct: purity, basis: 'dry', evidenceStatus: 'self_reported' } }
+  state.busy = true; render()
+  try {
+    if (isDemoMode || state.live.status === 'fallback') {
+      const item = mapListing({ id: `local-listing-${Date.now()}`, name, supplierOrganizationId: 'org-carbonstone', sourceIndustry: payload.sourceIndustry, state: 'draft', supply: { ...payload.supplyPeriods[0], remainingTonnes: String(totalTonnes) }, quality: { purityMolPct: purity, evidenceStatus: 'self_reported' }, location: { city: 'Ahmedabad' } })
+      state.data.listings.unshift(item); state.listingEditor = null; setNotice('Demo draft saved locally. Connect the API to persist it.')
+    } else {
+      const saved = await createListing(payload)
+      state.data.listings.unshift(mapListing(saved)); state.listingEditor = null; setNotice('Private listing draft saved. Publish only after reviewing the evidence.')
+    }
+  } catch (error) { setNotice(error.message) } finally { state.busy = false; render() }
+}
+
+async function publishSelectedListing() {
+  const item = state.listingDetail || liveListings().find((listing) => listing.id === state.selectedListing)
+  if (!item) return
+  if (isDemoMode || state.live.status === 'fallback') return setNotice('Demo mode cannot publish. The preview remains private and clearly labelled.')
+  state.busy = true; render()
+  try { await publishListing(item.id, item.raw?.version || 1); await hydrate(); state.listingDetail = null; setNotice('Listing published after server evidence checks.') } catch (error) { setNotice(error.message) } finally { state.busy = false; render() }
+}
+
+async function editSelectedListing(form) {
+  const item = state.listingDetail
+  const name = String(new FormData(form).get('name') || '').trim()
+  if (!item || !name) return setNotice('Enter a listing name.')
+  if (isDemoMode || state.live.status === 'fallback') { item.title = name; setNotice('Demo listing edited locally. Connect the API to persist it.'); render(); return }
+  state.busy = true; render()
+  try {
+    const saved = await patchListing(item.id, { name, version: item.raw?.version || 1 })
+    state.listingDetail = mapListing(saved)
+    state.data.listings = state.data.listings.map((listing) => listing.id === item.id ? state.listingDetail : listing)
+    setNotice('Listing name updated. Supply and quality terms remain separately evidence-controlled.')
+  } catch (error) { setNotice(error.message) } finally { state.busy = false; render() }
+}
+
+async function submitSelectedRequest(resultId) {
+  const requirement = liveRequirements().find((item) => item.id === state.activeRequirementId) || liveRequirements()[0]
+  const result = (state.matchRun?.results || []).find((item) => item.id === resultId)
+  if (!requirement || !result) return setNotice('Run a match and select a compatible option first.')
+  if (isDemoMode || state.live.status === 'fallback') return setNotice('Demo mode shows the request path but does not submit external requests.')
+  state.busy = true; render()
+  try {
+    await createSupplyRequest({ matchResultId: result.id, expectedRequirementVersion: requirement.raw?.version || 1, expectedSupplyVersion: result.supplyPeriodVersion || result.expectedSupplyVersion || 1, expectedDeliveredPaisePerTonne: result.economics?.deliveredPaisePerTonne })
+    await hydrate(); setNotice('Supply request submitted with the evaluated terms snapshot.'); navigate('requests')
+  } catch (error) { setNotice(error.message) } finally { state.busy = false; render() }
+}
+
+async function loadReceipt() {
+  const id = state.matchRun?.run?.id || state.matchRun?.id
+  if (!id || isDemoMode || state.live.status !== 'connected') return setNotice('A persisted live match run is required for a decision receipt.')
+  try { state.receipt = await getMatchReceipt(id); render() } catch (error) { setNotice(error.message) }
+}
+
+async function runScenario() {
+  const id = state.matchRun?.run?.id || state.matchRun?.id
+  if (!id || isDemoMode || state.live.status !== 'connected') return setNotice('Connect the API and run a match to test a scenario.')
+  try { state.matchScenario = await createMatchScenario(id, { minimumPurityMolPct: 99 }); setNotice('Scenario complete: minimum purity set to 99%.'); render() } catch (error) { setNotice(error.message) }
+}
+
 function shell() {
   const pageTitle = nav.find(([id]) => id === state.view)?.[1] || 'Assistant'
+  const identity = state.data.identity
+  const workspaceName = identity?.currentOrganization?.name || 'Demo workspace'
+  const memberName = identity?.user?.displayName || 'Demo user'
   const runtimeLabel = state.live.status === 'connected' ? 'Connected workspace' : isDemoMode || state.live.status === 'demo' || state.live.status === 'fallback' ? 'Demo workspace' : 'Connecting workspace'
   const runtimeDetail = state.live.status === 'connected' ? 'Live API · session protected' : isDemoMode || state.live.status === 'demo' || state.live.status === 'fallback' ? 'Seed data · safe to explore' : 'Checking API connection…'
   return `<div class="app-shell">
     <aside class="sidebar">
       <div class="brand-lockup" aria-label="CarbonBridge home"><div class="brand-mark"><span>↗</span></div><div><strong>carbon<span>bridge</span></strong><small>circular carbon exchange</small></div></div>
-      <div class="workspace-switcher"><div class="avatar avatar-teal">AF</div><div class="workspace-copy"><strong>Aster Fermentation</strong><span>Seller workspace</span></div><button class="icon-button subtle">⌄</button></div>
+      <div class="workspace-switcher"><div class="avatar avatar-teal">${escapeHtml(workspaceName.slice(0, 2).toUpperCase())}</div><div class="workspace-copy"><strong>${escapeHtml(workspaceName)}</strong><span>${identity ? `${escapeHtml((identity.capabilities || []).join(' · ') || 'Member')} workspace` : 'Demo workspace · no live writes'}</span></div><button class="icon-button subtle" title="Workspace switching is not configured">⌄</button></div>
       <nav class="main-nav" aria-label="Main navigation">${nav.map((item, index) => `${item[3] && (index === 1 || item[3] !== nav[index - 1]?.[3]) ? `<div class="nav-section">${item[3]}</div>` : ''}<button class="nav-item ${state.view === item[0] ? 'active' : ''}" data-view="${item[0]}"><span class="nav-icon">${item[2]}</span><span>${item[1]}</span>${item[0] === 'evidence' ? '<span class="nav-count">3</span>' : ''}${item[0] === 'requests' ? '<span class="nav-dot"></span>' : ''}</button>`).join('')}</nav>
-      <div class="sidebar-bottom"><div class="trust-card"><span class="status-pulse"></span><div><strong>${runtimeLabel}</strong><small>${runtimeDetail}</small></div></div><button class="nav-item" data-action="open-assistant"><span class="nav-icon">✦</span><span>Ask CarbonBridge</span><span class="shortcut">⌘K</span></button><button class="nav-item"><span class="nav-icon">⚙</span><span>Settings</span></button><div class="user-row"><div class="avatar avatar-coral">AS</div><div><strong>Ananya Shah</strong><span>Org admin</span></div><button class="icon-button subtle">•••</button></div></div>
+      <div class="sidebar-bottom"><div class="trust-card"><span class="status-pulse"></span><div><strong>${runtimeLabel}</strong><small>${runtimeDetail}</small></div></div><button class="nav-item" data-action="open-assistant"><span class="nav-icon">✦</span><span>Ask CarbonBridge</span><span class="shortcut">⌘K</span></button><button class="nav-item" title="Settings are not configured in this prototype" disabled><span class="nav-icon">⚙</span><span>Settings unavailable</span></button><div class="user-row"><div class="avatar avatar-coral">${escapeHtml(memberName.slice(0, 2).toUpperCase())}</div><div><strong>${escapeHtml(memberName)}</strong><span>${identity ? 'Authenticated member' : 'Demo identity'}</span></div></div></div>
     </aside>
     <main class="main-content"><header class="topbar"><div class="breadcrumbs"><span>Workspace</span><b>/</b><strong>${pageTitle}</strong></div><div class="topbar-actions"><span class="sync-status"><i></i> ${state.busy ? 'Working…' : state.live.status === 'connected' ? 'Live data synced' : 'All changes saved'}</span><button class="icon-button" aria-label="Notifications">♢<span class="notification-dot"></span></button>${button('<span>✦</span> Ask assistant', 'button button-dark button-small', 'open-assistant')}</div></header><div class="page-scroll">${state.notice ? `<div class="runtime-notice" role="status">${escapeHtml(state.notice)}</div>` : ''}${renderView()}</div></main>
     ${state.assistantOpen && state.view !== 'assistant' ? assistantPanel() : ''}
@@ -467,8 +564,16 @@ function processView() {
 }
 
 function marketplace() {
-  const currentListings = visibleListings()
-  return `${intro('Trade · Captured CO₂', 'Find the right next user.', 'Every result is ranked from quality fit, availability, distance and evidence. Prices are shown with their basis and date.', button('＋ Create a listing', 'button button-dark', 'go-process'))}<div class="market-toolbar"><div class="search-box"><span>⌕</span><input aria-label="Search marketplace" placeholder="Search by material, use or location" data-market-search /></div><button class="filter-button">Material <span>⌄</span></button><button class="filter-button">Quality <span>⌄</span></button><button class="filter-button">Availability <span>⌄</span></button><span class="result-count">${currentListings.length} results <button class="icon-button subtle">≡</button></span></div><div class="market-layout"><div class="listing-list">${currentListings.map((item) => `<article class="listing-card ${state.selectedListing === item.id ? 'selected' : ''}" data-listing="${item.id}"><div class="listing-art ${item.color}"><span>◌</span><small>CO₂</small></div><div class="listing-main"><div class="listing-heading"><div><span class="match-score">${item.score === null ? 'Unranked' : `${item.score}% fit`}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.supplier)} · ${escapeHtml(item.location)}</p></div><button class="select-circle ${state.selectedListing === item.id ? 'checked' : ''}" aria-label="Select ${escapeHtml(item.title)}">${state.selectedListing === item.id ? '✓' : ''}</button></div><div class="listing-facts"><span><b>Quantity</b>${escapeHtml(item.quantity)}</span><span><b>Purity</b>${escapeHtml(item.purity)}</span><span><b>Price</b>${escapeHtml(item.price)}</span><span><b>Available</b>${escapeHtml(item.availability)}</span></div><div class="listing-footer"><span class="evidence-state ${item.evidence === 'Verified' ? 'verified' : 'partial'}"><i></i> ${escapeHtml(item.evidence)} evidence</span><button class="text-button">View details →</button></div></div></article>`).join('')}</div><div class="panel compare-panel"><div class="panel-title"><div><span class="eyebrow">Decision helper</span><h3>Compare options</h3></div><span class="compare-count">${state.matchRun?.results?.length || 0} / 3</span></div><p>Select up to three supply options. We’ll show the quality gaps, delivered estimate and evidence state side by side.</p><div class="compare-preview"><div class="compare-graphic"><span class="graphic-line line-a"></span><span class="graphic-line line-b"></span><span class="graphic-node node-a"></span><span class="graphic-node node-b"></span><span class="graphic-node node-c"></span></div><div class="compare-labels"><span>Purity</span><span>Cost</span><span>Evidence</span></div></div>${button('See buyer fit <span>→</span>', 'button button-dark full-width', 'go-requirements')}<button class="text-button centered" data-action="run-matches">Run deterministic match ↗</button></div></div>`
+  const all = visibleListings().filter((item) => state.marketFilters.evidence === 'all' || item.evidence.toLowerCase() === state.marketFilters.evidence)
+  const pageSize = 6, pages = Math.max(1, Math.ceil(all.length / pageSize)); state.marketPage = Math.min(state.marketPage, pages)
+  const currentListings = all.slice((state.marketPage - 1) * pageSize, state.marketPage * pageSize)
+  const results = state.matchRun?.results || []
+  const groups = state.matchRun?.groups || {}
+  const detail = state.listingDetail
+  const matchRows = results.slice(0, 4).map((result) => `<div class="compare-chat-row"><div><strong>${escapeHtml(result.streamName || result.streamId || 'Supply option')}</strong><span>${escapeHtml(readableStatus(result.status))}${result.economics?.distanceKm !== undefined ? ` · ${result.economics.distanceKm} km` : ''}</span></div><strong>${moneyPerTonne(result.economics?.deliveredPaisePerTonne)}</strong>${result.status === 'compatible' ? `<button class="small-action" data-submit-request="${escapeHtml(result.id)}">Request</button>` : '<span class="fit-badge secondary">Review</span>'}</div>`).join('')
+  const editor = state.listingEditor ? `<section class="panel manual-form-panel"><div class="panel-title"><div><span class="eyebrow">Supplier workspace</span><h3>Create a private listing draft</h3></div><button class="text-button" data-action="close-listing-editor">Close</button></div><form class="listing-form"><div><label class="field-label">Listing name</label><input name="name" required placeholder="Captured CO₂ stream" /></div><div><label class="field-label">Industry</label><input name="industry" value="cement" /></div><div><label class="field-label">Quantity (tonnes)</label><input name="totalTonnes" type="number" min="0.001" step="0.001" required /></div><div><label class="field-label">Minimum order (tonnes)</label><input name="minimumOrderTonnes" type="number" min="0" step="0.001" value="0" /></div><div><label class="field-label">Price (₹ / tonne)</label><input name="price" type="number" min="0" required /></div><div><label class="field-label">Purity (%)</label><input name="purity" type="number" min="0" max="100" step="0.01" required /></div><div><label class="field-label">Start</label><input name="start" type="date" required /></div><div><label class="field-label">End</label><input name="end" type="date" required /></div><button class="button button-dark" type="submit">Save private draft</button></form><p class="field-hint">Publishing is server-validated: a bounded supply period and current quality evidence are required.</p></section>` : ''
+  const detailPanel = detail ? `<section class="panel manual-form-panel"><div class="panel-title"><div><span class="eyebrow">Listing detail · ${escapeHtml(detail.id)}</span><h3>${escapeHtml(detail.title)}</h3></div><button class="text-button" data-action="close-listing-detail">Close</button></div><p>${escapeHtml(detail.supplier)} · ${escapeHtml(detail.location)} · ${escapeHtml(detail.quantity)}</p><div class="listing-facts"><span><b>Purity</b>${escapeHtml(detail.purity)}</span><span><b>Price</b>${escapeHtml(detail.price)}</span><span><b>Availability</b>${escapeHtml(detail.availability)}</span></div><form class="listing-edit-form"><label class="field-label">Listing name</label><input name="name" value="${escapeHtml(detail.title)}" required /><button class="outlined-button" type="submit">Save listing name</button></form><p class="field-hint">${detail.synthetic ? 'Fictional demonstration record.' : 'Organization-provided record.'} ${detail.evidence === 'Verified' ? 'Evidence status is available for review.' : 'Evidence is incomplete; do not treat quality as verified.'}</p>${button('Publish after server validation', 'button button-dark', 'publish-listing')}</section>` : ''
+  return `${intro('Trade · Captured CO₂', 'Find the right next user.', 'Live records are marked as connected; demo fallback never commits a trade.', button('＋ Create a listing', 'button button-dark', 'open-listing-editor'))}${editor}${detailPanel}<div class="market-toolbar"><div class="search-box"><span>⌕</span><input aria-label="Search marketplace" placeholder="Search by material, supplier or location" data-market-search /></div><button class="filter-button" data-filter-evidence="all">All evidence</button><button class="filter-button" data-filter-evidence="verified">Verified</button><button class="filter-button" data-filter-evidence="partial">Partial</button><span class="result-count">${all.length} results · page ${state.marketPage}/${pages}</span></div><div class="market-layout"><div class="listing-list">${currentListings.map((item) => `<article class="listing-card ${state.selectedListing === item.id ? 'selected' : ''}" data-listing="${item.id}"><div class="listing-art ${item.color}"><span>◌</span><small>CO₂</small></div><div class="listing-main"><div class="listing-heading"><div><span class="match-score">${item.score === null ? 'Unranked' : `${item.score}% fit`}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.supplier)} · ${escapeHtml(item.location)}</p></div></div><div class="listing-facts"><span><b>Quantity</b>${escapeHtml(item.quantity)}</span><span><b>Purity</b>${escapeHtml(item.purity)}</span><span><b>Price</b>${escapeHtml(item.price)}</span><span><b>Available</b>${escapeHtml(item.availability)}</span></div><div class="listing-footer"><span class="evidence-state ${item.evidence === 'Verified' ? 'verified' : 'partial'}"><i></i> ${escapeHtml(item.evidence)} evidence</span><button class="text-button" data-open-listing="${escapeHtml(item.id)}">View details →</button></div></div></article>`).join('') || '<div class="empty-state">No listings match these filters.</div>'}<div class="pagination"><button class="filter-button" data-page="${state.marketPage - 1}" ${state.marketPage === 1 ? 'disabled' : ''}>Previous</button><button class="filter-button" data-page="${state.marketPage + 1}" ${state.marketPage === pages ? 'disabled' : ''}>Next</button></div></div><div class="panel compare-panel"><div class="panel-title"><div><span class="eyebrow">Decision helper</span><h3>Match results</h3></div><span class="compare-count">${results.length} evaluated</span></div><p>${results.length ? `${groups.compatible?.length || 0} compatible · ${groups.needsEvidence?.length || 0} need evidence · ${groups.incompatible?.length || 0} incompatible` : 'Run the deterministic matcher for quality, availability, distance and delivered-cost checks.'}</p>${matchRows || '<div class="empty-state">No current match run.</div>'}${button('Choose buyer requirement', 'button button-dark full-width', 'go-requirements')}<button class="text-button centered" data-action="run-matches">Run deterministic match</button><button class="text-button centered" data-action="load-receipt">View decision receipt</button><button class="text-button centered" data-action="run-scenario">Test 99% purity scenario</button>${state.receipt ? `<p class="field-hint">Receipt: ${escapeHtml(state.receipt.id || state.receipt.runId || 'saved')} · immutable terms snapshot loaded.</p>` : ''}${state.matchScenario ? `<p class="field-hint">Scenario generated from the saved run; it does not change the requirement.</p>` : ''}</div></div>`
 }
 
 function requirementsView() {
@@ -592,7 +697,7 @@ function render() {
 }
 
 document.addEventListener('click', (event) => {
-  const target = event.target.closest('[data-view], [data-action], [data-prompt], [data-listing], [data-approve-action], [data-cancel-action], [data-requirement], [data-request-action]')
+  const target = event.target.closest('[data-view], [data-action], [data-prompt], [data-listing], [data-open-listing], [data-approve-action], [data-cancel-action], [data-requirement], [data-request-action], [data-submit-request], [data-filter-evidence], [data-page]')
   if (!target) return
   if (target.dataset.view) {
     navigate(target.dataset.view)
@@ -603,6 +708,12 @@ document.addEventListener('click', (event) => {
   if (target.dataset.action === 'go-process') { navigate('process'); return }
   if (target.dataset.action === 'go-marketplace') { navigate('marketplace'); return }
   if (target.dataset.action === 'go-requirements') { navigate('requirements'); return }
+  if (target.dataset.action === 'open-listing-editor') { state.listingEditor = {}; state.listingDetail = null; render(); return }
+  if (target.dataset.action === 'close-listing-editor') { state.listingEditor = null; render(); return }
+  if (target.dataset.action === 'close-listing-detail') { state.listingDetail = null; render(); return }
+  if (target.dataset.action === 'publish-listing') { publishSelectedListing(); return }
+  if (target.dataset.action === 'load-receipt') { loadReceipt(); return }
+  if (target.dataset.action === 'run-scenario') { runScenario(); return }
   if (target.dataset.action === 'run-matches') {
     const requirement = liveRequirements()[0]
     if (!requirement?.raw?.id || isDemoMode) { setNotice('Ask the assistant to find supply options; the seeded comparison is available in demo mode.'); return }
@@ -615,6 +726,10 @@ document.addEventListener('click', (event) => {
   if (target.dataset.requestAction) { manageRequest(target.dataset.requestId, target.dataset.requestAction); return }
   if (target.dataset.prompt) { sendMessage(target.dataset.prompt); return }
   if (target.dataset.requirement) { state.activeRequirementId = target.dataset.requirement; navigate('marketplace'); return }
+  if (target.dataset.openListing) { openListing(target.dataset.openListing); return }
+  if (target.dataset.submitRequest) { submitSelectedRequest(target.dataset.submitRequest); return }
+  if (target.dataset.filterEvidence) { state.marketFilters.evidence = target.dataset.filterEvidence; state.marketPage = 1; render(); return }
+  if (target.dataset.page) { state.marketPage = Math.max(1, Number(target.dataset.page)); render(); return }
   if (target.dataset.listing) {
     state.selectedListing = target.dataset.listing
     if (!state.selectedListings.includes(target.dataset.listing)) {
@@ -625,6 +740,16 @@ document.addEventListener('click', (event) => {
 })
 
 document.addEventListener('submit', (event) => {
+  if (event.target.matches('.listing-edit-form')) {
+    event.preventDefault()
+    editSelectedListing(event.target)
+    return
+  }
+  if (event.target.matches('.listing-form')) {
+    event.preventDefault()
+    saveListing(event.target)
+    return
+  }
   if (event.target.matches('.manual-requirement-form')) {
     event.preventDefault()
     saveManualRequirement(event.target)
