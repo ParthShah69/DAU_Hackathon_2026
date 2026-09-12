@@ -357,20 +357,8 @@ export async function requestAction(requestId, action, version) {
   })
 }
 
-export async function getListing(listingId) {
-  return apiRequest(`/listings/${encodeURIComponent(listingId)}`)
-}
-
-export async function createListing(payload) {
-  return apiRequest('/listings', { method: 'POST', body: payload })
-}
-
 export async function patchListing(listingId, payload) {
   return apiRequest(`/listings/${encodeURIComponent(listingId)}`, { method: 'PATCH', body: payload })
-}
-
-export async function publishListing(listingId, version) {
-  return apiRequest(`/listings/${encodeURIComponent(listingId)}/publish`, { method: 'POST', body: { version } })
 }
 
 export async function createSupplyRequest(payload) {
