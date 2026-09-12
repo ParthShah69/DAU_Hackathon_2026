@@ -69,6 +69,9 @@ const fallbackDemoActors = [
 const fallbackNegotiations = [
   { id: 'demo-negotiation-a', counterparty: 'CarbonStone Materials', status: 'in_negotiation', summary: { quantity: '80', unit: 'tonnes/month', purity: '≥ 98.0% dry basis', priceBasis: '₹2,120/t ex-works', delivery: 'Road tanker to Rajkot', schedule: 'October 2026' }, messages: [{ organizationId: 'org-greenbuild', content: 'We can take 80 tonnes per month for curing trials, subject to the latest moisture and CO analysis.', createdAt: '12 Sep · 08:30' }, { organizationId: 'org-carbonstone', content: 'We can reserve 80 tonnes in October. Propose a 20-tonne minimum tanker dispatch.', createdAt: '12 Sep · 09:20' }] }
 ]
+const fallbackDemands = [
+  { id: 'requirement-demo', name: 'October concrete curing requirement', quantityTonnes: '100', minimumPurityMolPct: '95', acceptableForms: ['gas'], periodStart: '2026-10-01', periodEnd: '2026-10-31', synthetic: true, buyer: { id: 'org-greenbuild', name: 'GreenBuild Concrete', kind: 'buyer', verificationStatus: 'verified', details: { industry: 'Low-carbon concrete manufacturing', facilityLocation: 'Rajkot, Gujarat', requiredAmount: '100 tonnes/month', deliveryLocation: 'Rajkot curing facility' } } }
+]
 
 const processSteps = [
   ['01', 'Capture', 'Process gas collected at the stack or separator', 'input'],
@@ -484,6 +487,7 @@ async function hydrate() {
   if (isDemoMode) {
     state.live.status = 'demo'
     state.data.listings = fallbackListingRecords.map((record) => mapListing(record))
+    state.data.demands = fallbackDemands.slice()
     state.data.negotiations = fallbackNegotiations
     seedAssistantGreeting()
     render()
@@ -506,6 +510,7 @@ async function hydrate() {
     state.live.status = 'fallback'
     state.live.error = error.message
     state.data.listings = fallbackListingRecords.map((record) => mapListing(record))
+    state.data.demands = fallbackDemands.slice()
     state.data.negotiations = fallbackNegotiations
     setNotice(`Live API unavailable. Showing degraded demo data. ${error.message}`)
   }
@@ -1627,7 +1632,10 @@ document.addEventListener('submit', (event) => {
     const values = new FormData(event.target)
     const requirementId = String(values.get('requirementId') || '')
     const payload = { quantity: String(values.get('quantity') || ''), purity: String(values.get('purity') || ''), priceBasis: String(values.get('priceBasis') || ''), delivery: String(values.get('delivery') || ''), message: String(values.get('message') || '') }
-    if (!canUseLive()) { setNotice('Start the API to send a private offer.'); return }
+    if (!canUseLive()) {
+      state.data.negotiations = [{ id: `demo-demand-offer-${Date.now()}`, counterparty: state.demandOfferOpen?.buyer?.name || 'Buyer organization', status: 'pending', summary: { quantity: payload.quantity, unit: 'tonnes', purity: payload.purity, priceBasis: payload.priceBasis || 'Open to offers', delivery: payload.delivery || 'To be agreed', schedule: 'Requested delivery month' }, messages: [{ organizationId: identity().organizationId, content: payload.message, createdAt: timeNow() }] }, ...state.data.negotiations]
+      state.demandOfferOpen = null; state.view = 'negotiations'; setNotice('Demo offer created in this browser. Start the API for a shared, persistent negotiation.'); render(); return
+    }
     state.busy = true; render()
     offerOnMarketplaceDemand(requirementId, payload).then(() => loadWorkspace(listingFilterPayload())).then((workspace) => { applyWorkspace(workspace); state.demandOfferOpen = null; state.view = 'negotiations'; setNotice('Private offer sent. The buyer can now review your profile and reply.'); render() }).catch((error) => setNotice(error.message)).finally(() => { state.busy = false; render() })
     return
