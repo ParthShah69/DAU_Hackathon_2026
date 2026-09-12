@@ -62,6 +62,15 @@ function addMessage(store, conversation, role, content, metadata = {}) {
 
 function detectIntent(text, context = {}) {
   const normalized = text.toLowerCase();
+  if (
+    /\b(system\s*override|drop\s*table|execute\s*sql|select\s*\*|insert\s*into|delete\s*from|union\s*select|sql\b)/i.test(normalized) ||
+    /\b(ignore\s*(all\s*)?(previous|prior)\s*instructions|disregard\s*(all\s*)?(previous|prior)|jailbreak)\b/i.test(normalized) ||
+    /\b(you\s*are\s*now|roleplay\s*as|act\s*as|pretend\s*to\s*be)\s*(systemadmin|admin|root|superuser|developer|god)\b/i.test(normalized) ||
+    /\b(without\s*(user\s*)?(confirmation|approval|asking)|automatically\s*(approve|accept|commit|execute))\b/i.test(normalized) ||
+    /\b(fetch\s*external\s*url|https?:\/\/|curl\b|wget\b|steal[- ]data|exfiltrat)/i.test(normalized)
+  ) {
+    return 'security_violation';
+  }
   if (/^(yes|y|confirm|approve|approved|go ahead|do it|proceed|okay|ok)\b/.test(normalized)) return 'confirm_action';
   if (/\b(cancel|stop|never mind|discard)\b/.test(normalized)) return 'cancel_action';
   if (/(compare|side by side|which (one|option)|best deal|cheapest)/.test(normalized)) return 'compare_options';
@@ -77,8 +86,10 @@ function detectIntent(text, context = {}) {
 }
 
 function parseQuantity(text) {
-  const match = text.match(/(?:need|quantity|for|buy|purchase)?\s*(\d+(?:\.\d+)?)\s*(?:metric\s*)?(?:tonnes?|tons?|t)\b/i);
-  return match ? Number(match[1]) : null;
+  const match = text.match(/(?:^|[^\w])(-?\d[\d,]*(?:\.\d+)?)\s*(?:metric\s*)?(?:tonnes?|tons?|t)\b/i);
+  if (!match) return null;
+  const num = Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(num) && num > 0 && num <= 1000000 ? num : null;
 }
 
 function parsePurity(text) {
@@ -104,10 +115,13 @@ function parseForm(text) {
 }
 
 function parsePeriod(text) {
-  const month = text.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s*(20\d{2})?\b/i);
+  const monthRegex = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s*(20\d{2})?\b/i;
+  const month = text.match(monthRegex);
   if (!month) return null;
-  const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-  const index = months.indexOf(month[1].toLowerCase());
+  const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const monthPrefix = month[1].toLowerCase().slice(0, 3);
+  const index = monthNames.indexOf(monthPrefix);
+  if (index === -1) return null;
   const year = Number(month[2] || 2026);
   const start = `${year}-${String(index + 1).padStart(2, '0')}-01`;
   const endDate = new Date(Date.UTC(year, index + 1, 0));
@@ -313,7 +327,9 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
   let response;
   let state = 'completed';
   try {
-    if (intent === 'confirm_action') {
+    if (intent === 'security_violation') {
+      response = buildResponse('Security policy: CarbonBridge strictly blocks arbitrary code/SQL execution, external URL calls, and prompt injection attempts. All operations operate strictly within your authenticated workspace.', [], { needsInput: true });
+    } else if (intent === 'confirm_action') {
       const action = pendingAction(store, conversation);
       if (!action) {
         response = buildResponse('There is no pending action to confirm. Ask me to prepare a listing, requirement, or supply request first.', [], { needsInput: true });

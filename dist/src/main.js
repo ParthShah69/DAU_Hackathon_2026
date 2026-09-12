@@ -1497,11 +1497,88 @@ function renderView() {
   return overview()
 }
 
-function assistantResponse(text) {
-  const lower = text.toLowerCase().trim()
+function extractQuantity(text) {
+  const match = text.match(/(?:^|[^\w])(-?\d[\d,]*(?:\.\d+)?)\s*(?:metric\s*)?(?:tonnes?|tons?|t)\b/i)
+  if (!match) return null
+  const clean = match[1].replace(/,/g, '')
+  const num = Number(clean)
+  return Number.isFinite(num) ? num : null
+}
 
-  // 1. Confirmations and Approvals
-  if (/^(yes|y|confirm|approve|proceed|go ahead|do it|ok|okay)\b/i.test(lower) || /confirm\s*(exact\s*)?action/i.test(lower)) {
+function extractPeriod(text) {
+  const monthRegex = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+(20\d{2}))?\b/gi
+  const matches = [...text.matchAll(monthRegex)]
+  if (!matches.length) return null
+
+  const monthMap = {
+    jan: 'January', january: 'January',
+    feb: 'February', february: 'February',
+    mar: 'March', march: 'March',
+    apr: 'April', april: 'April',
+    may: 'May',
+    jun: 'June', june: 'June',
+    jul: 'July', july: 'July',
+    aug: 'August', august: 'August',
+    sep: 'September', september: 'September',
+    oct: 'October', october: 'October',
+    nov: 'November', november: 'November',
+    dec: 'December', december: 'December',
+  }
+
+  const formatMatch = (m) => {
+    const name = monthMap[m[1].toLowerCase()] || m[1]
+    const year = m[2] || '2026'
+    return `${name} ${year}`
+  }
+
+  if (matches.length >= 2 && text.toLowerCase().includes('between')) {
+    return `${formatMatch(matches[0])} – ${formatMatch(matches[1])}`
+  }
+  return formatMatch(matches[0])
+}
+
+function assistantResponse(text) {
+  // Strip outer quotes (straight, curly), brackets, asterisks, and whitespace
+  const stripped = String(text || '')
+    .trim()
+    .replace(/^["'“”‘’`*(\[]+|["'”’`*)\]]+$/g, '')
+    .trim()
+  const lower = stripped.toLowerCase()
+
+  // 0. Security & Safety Guardrail: Prompt Injection, SQLi, SSRF, Role Hijack, Auto-Approval Bypass
+  if (
+    /\b(system\s*override|drop\s*table|execute\s*sql|select\s*\*|insert\s*into|delete\s*from|union\s*select|sql\b)/i.test(lower) ||
+    /\b(ignore\s*(all\s*)?(previous|prior)\s*instructions|disregard\s*(all\s*)?(previous|prior)|jailbreak)\b/i.test(lower) ||
+    /\b(you\s*are\s*now|roleplay\s*as|act\s*as|pretend\s*to\s*be)\s*(systemadmin|admin|root|superuser|developer|god)\b/i.test(lower) ||
+    /\b(without\s*(user\s*)?(confirmation|approval|asking)|automatically\s*(approve|accept|commit|execute))\b/i.test(lower) ||
+    /\b(fetch\s*external\s*url|https?:\/\/|curl\b|wget\b|steal[- ]data|exfiltrat)/i.test(lower)
+  ) {
+    return {
+      text: 'Security policy: CarbonBridge strictly blocks arbitrary code/SQL execution, external URL network calls, role elevation, and auto-approval bypasses. All commercial changes require structured validation and explicit two-phase user confirmation.',
+    }
+  }
+
+  // 0.5 Off-topic / Unrelated / Chit-chat guardrail (e.g. "Tell me about local weather")
+  if (
+    /\b(weather|forecast|rain|temperature|joke|poem|recipe|sports|score|movie|president|who won|capital of|song)\b/i.test(lower) ||
+    lower.includes('unrelated')
+  ) {
+    return {
+      text: 'I am the CarbonBridge assistant, specialized in circular carbon exchange, process discovery, and marketplace transactions. I cannot provide external info like weather or chit-chat, but I can help you find CO₂ suppliers, compare options, or create buyer requirements.',
+    }
+  }
+
+  // 1. Confirmations and Approvals (handles "Yes, confirm it", "Confirm", "Approve", "Proceed", "looks good", etc.)
+  if (
+    /\b(confirm|approve|proceed|go ahead|looks good|commit)\b/i.test(lower) ||
+    /^(yes|y|ok|okay|do it)\b/i.test(lower) ||
+    /\byes,\s*(confirm|proceed|approve|do it)\b/i.test(lower)
+  ) {
+    if (!state.pendingAction && !state.pendingActionId) {
+      return {
+        text: 'There is no pending action waiting for confirmation. You can ask me to find supply options or create a buyer requirement first.',
+      }
+    }
     const pending = state.pendingAction || { operation: 'commit_transaction', summary: 'Confirmed requested action', details: { quantityTonnes: 100 } }
     state.pendingActionId = null
     state.pendingAction = null
@@ -1516,15 +1593,41 @@ function assistantResponse(text) {
     } else if (pending.operation === 'create_requirement') {
       const newReq = mapRequirement({
         id: `local-req-${Date.now().toString().slice(-4)}`,
-        name: `Demand ${pending.details?.quantityTonnes || 100}t ${pending.details?.period || 'Oct 2026'}`,
+        name: `Demand ${pending.details?.quantityTonnes || 100}t ${pending.details?.period || 'Nov 2026'}`,
         quantityTonnes: pending.details?.quantityTonnes || 100,
-        periodStart: '2026-10-01',
-        periodEnd: '2026-10-31',
+        periodStart: '2026-11-01',
+        periodEnd: '2026-11-30',
         organizationId: identity().organizationId || 'org-greenbuild',
         state: 'published',
       })
       state.data.requirements = [newReq, ...state.data.requirements]
       state.activeRequirementId = newReq.id
+    } else if (pending.operation === 'create_listing_draft') {
+      const newListing = mapListing({
+        id: `stream-local-${Date.now()}`,
+        name: 'Captured CO₂ stream (Draft)',
+        supplierOrganizationId: identity().organizationId || 'org-carbonstone',
+        sourceIndustry: 'cement',
+        physicalForm: 'gas',
+        location: { city: 'Ahmedabad' },
+        supply: { totalTonnes: '500', remainingTonnes: '500', start: '2026-10-01', end: '2026-10-31', listedPricePaisePerTonne: 190000, currency: 'INR' },
+        quality: { purityMolPct: null, evidenceStatus: 'missing' },
+        synthetic: true,
+        state: 'draft',
+      })
+      state.data.listings.unshift(newListing)
+      return {
+        text: 'Confirmed. The listing draft has been created in your workspace. You can now add quantity and quality evidence before requesting publication.',
+        card: 'action',
+        payload: {
+          actionId: `receipt-${Date.now()}`,
+          status: 'succeeded',
+          operation: 'create_listing_draft',
+          summary: 'Draft listing created: Captured CO₂ stream',
+          instruction: 'Draft created. Publication remains paused pending evidence review.',
+        },
+        view: 'process',
+      }
     }
     return {
       text: 'Confirmed. The transaction request has been recorded and submitted to the supplier.',
@@ -1536,12 +1639,16 @@ function assistantResponse(text) {
         summary: pending.summary || 'Supply request submitted to supplier',
         instruction: 'The request has been recorded and the supplier has been notified for fulfillment.',
       },
-      view: 'requests',
+      view: pending.operation === 'create_requirement' ? 'requirements' : 'requests',
     }
   }
 
-  // 2. Cancellation and Discarding
-  if (/^(cancel|stop|discard|reject|abort|no|n)\b/i.test(lower) || /\b(cancel|discard)\s*(action|request|draft|it)?\b/i.test(lower)) {
+  // 2. Cancellation and Discarding (handles "No, cancel that", "Cancel", "Discard", "Stop", etc.)
+  if (
+    /\b(cancel|discard|abort|reject)\b/i.test(lower) ||
+    /^(no|n|stop)\b/i.test(lower) ||
+    /\bno,\s*(cancel|stop|discard|reject)\b/i.test(lower)
+  ) {
     state.pendingActionId = null
     state.pendingAction = null
     return {
@@ -1554,6 +1661,20 @@ function assistantResponse(text) {
         summary: 'Action discarded',
         instruction: 'No changes were committed.',
       },
+    }
+  }
+
+  // 2.5 Action Preview Query / Status Check
+  if (/\b(emits?\s*action\s*preview|action\s*preview|status)\b/i.test(lower)) {
+    if (state.pendingAction) {
+      return {
+        text: `There is an action awaiting your review: ${state.pendingAction.summary}. You can say "Confirm" to proceed or "Cancel" to discard.`,
+        card: 'action',
+        payload: state.pendingAction,
+      }
+    }
+    return {
+      text: 'An action preview is staged before any permanent change (like creating a buyer requirement or submitting a trade request). Currently no action is waiting for approval.',
     }
   }
 
@@ -1602,12 +1723,12 @@ function assistantResponse(text) {
   if (
     /(supply|supplier|option|match|compare|deal|find\s+options?|show\s+options?|get\s+options?|see\s+options?|list\s+options?|search\s+options?)/i.test(lower)
   ) {
-    const qtyMatch = lower.match(/(\d+)\s*(?:tonnes?|tons?|t)\b/i)
-    const periodMatch = lower.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+\d{4})?\b/i)
-    if (qtyMatch || periodMatch) {
+    const extractedQty = extractQuantity(lower)
+    const extractedPeriod = extractPeriod(lower)
+    if (extractedQty !== null || extractedPeriod) {
       state.demoContext = state.demoContext || {}
-      if (qtyMatch) state.demoContext.quantityTonnes = Number(qtyMatch[1])
-      if (periodMatch) state.demoContext.period = periodMatch[0].replace(/\b\w/g, (c) => c.toUpperCase())
+      if (extractedQty !== null && extractedQty > 0) state.demoContext.quantityTonnes = extractedQty
+      if (extractedPeriod) state.demoContext.period = extractedPeriod
     }
     const qty = state.demoContext?.quantityTonnes || 100
     const period = state.demoContext?.period || 'October 2026'
@@ -1624,13 +1745,34 @@ function assistantResponse(text) {
   }
 
   // 5. Requirements (e.g. "Create a requirement for 100 tonnes in October 2026", "I need CO2")
-  if (lower.includes('requirement') || (lower.includes('need') && lower.includes('co2')) || lower.includes('looking for') || lower.includes('buying')) {
-    const qtyMatch = lower.match(/(\d+)\s*(?:tonnes?|tons?|t)\b/i)
-    const periodMatch = lower.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+\d{4})?\b/i)
-    if (!qtyMatch || !periodMatch) {
+  if (lower.includes('requirement') || (lower.includes('need') && (lower.includes('co2') || lower.includes('gas') || lower.includes('carbon'))) || lower.includes('looking for') || lower.includes('buying')) {
+    const rawQty = extractQuantity(lower)
+    const period = extractPeriod(lower)
+
+    // Validation: negative or zero quantity
+    if (rawQty !== null && rawQty <= 0) {
+      return {
+        text: `Invalid quantity: ${rawQty} tonnes. The requirement quantity must be a positive number greater than 0 tonnes (e.g. 50 tonnes).`,
+        card: 'checklist',
+        payload: { fields: ['Positive quantity in tonnes (> 0 tonnes)'] },
+        view: 'requirements',
+      }
+    }
+
+    // Validation: absurdly large quantity
+    if (rawQty !== null && rawQty > 1000000) {
+      return {
+        text: `Requested quantity (${rawQty.toLocaleString()} tonnes) exceeds the maximum allowed single-batch requirement limit (1,000,000 tonnes). Please enter a realistic quantity for this delivery period.`,
+        card: 'checklist',
+        payload: { fields: ['Quantity under 1,000,000 tonnes'] },
+        view: 'requirements',
+      }
+    }
+
+    if (rawQty === null || !period) {
       const missing = []
-      if (!qtyMatch) missing.push('Quantity in tonnes (e.g. 100 tonnes)')
-      if (!periodMatch) missing.push('Delivery period (e.g. October 2026)')
+      if (rawQty === null) missing.push('Quantity in tonnes (e.g. 100 tonnes)')
+      if (!period) missing.push('Delivery period (e.g. October 2026)')
       return {
         text: 'I can create the buyer requirement, but I need a little more information: ' + missing.join(' and ') + '.',
         card: 'checklist',
@@ -1638,56 +1780,70 @@ function assistantResponse(text) {
         view: 'requirements',
       }
     }
-    const qty = Number(qtyMatch[1])
-    const period = periodMatch[0].replace(/\b\w/g, (c) => c.toUpperCase())
+
+    const qty = rawQty
     state.demoContext = { quantityTonnes: qty, period }
     const actionId = `action-req-${Date.now()}`
     const actionPayload = {
       actionId,
       operation: 'create_requirement',
-      summary: `Create requirement: ${qty} t (${period})`,
-      instruction: `Record buyer requirement for ${qty} tonnes of CO₂ gas with delivery in ${period}.`,
+      summary: `Create requirement: ${qty.toLocaleString()} t (${period})`,
+      instruction: `Record buyer requirement for ${qty.toLocaleString()} tonnes of CO₂ gas with delivery in ${period}.`,
       status: 'awaiting_approval',
       details: { quantityTonnes: qty, period },
     }
     state.pendingActionId = actionId
     state.pendingAction = actionPayload
     return {
-      text: `Here is the requirement I extracted: ${qty} tonnes of CO₂ for ${period}. Confirm it to save an editable draft.`,
+      text: `Here is the requirement I extracted: ${qty.toLocaleString()} tonnes of CO₂ for ${period}. Confirm it to save an editable draft.`,
       card: 'action',
       payload: actionPayload,
       view: 'requirements',
     }
   }
 
-  // 6. Process Discovery
-  if (lower.includes('process') || lower.includes('output') || lower.includes('sell') || lower.includes('generate')) {
-    return {
-      text: 'I mapped the process into potential outputs. Select an opportunity to see its assumptions and the evidence needed before it can become a listing.',
-      card: 'discovery',
-      payload: {
-        candidates: opportunities.map((item) => ({
+  // 6. Process Discovery (facility, process description, emissions, capture)
+  if (
+    /(process|output|sell|generate|produce|production|manufactur|plant|facility|factory|flue\s*gas|stack|cement|ethanol|kiln|exhaust|emission|capture|ferment|refinery|brewery|boiler|byproduct|waste)/i.test(lower) &&
+    !/(supply|requirement|compare|match|request|negotiat|list|publish|draft)/i.test(lower)
+  ) {
+    state.processText = stripped
+    state.analysisRun = true
+    const candidates = lower.includes('cement') || lower.includes('kiln') || lower.includes('flue')
+      ? [
+          { label: 'Captured CO₂ stream', material: 'captured_co2', confidence: 0.86, rationale: 'Flue gas separation suggests a recoverable CO₂ stream. Quantity and purity require lab evidence before publication.' },
+          { label: 'Low-grade process heat', material: 'waste_heat', confidence: 0.68, rationale: 'High-temperature flue gas recovery can supply nearby industrial thermal users.' },
+          { label: 'Mineral-rich residue', material: 'mineral_residue', confidence: 0.52, rationale: 'Combustion residue may be suitable for aggregates or cementitious blending, pending testing.' },
+        ]
+      : opportunities.map((item) => ({
           label: item.title,
           confidence: item.confidence / 100,
           rationale: item.reason,
-        })),
-      },
+        }))
+    return {
+      text: 'I analyzed your facility description and identified 3 potential recoverable outputs. The flue gas stream indicates high-volume CO₂ capture potential, alongside recoverable process heat.',
+      card: 'discovery',
+      payload: { candidates },
       view: 'process',
     }
   }
 
   // 7. Listings & Drafts
   if (lower.includes('list') || lower.includes('publish') || lower.includes('draft')) {
+    const actionId = `action-listing-${Date.now()}`
+    const actionPayload = {
+      actionId,
+      operation: 'create_listing_draft',
+      summary: 'Draft listing: Captured CO₂ stream',
+      instruction: 'Create draft listing. Publication is paused pending evidence validation.',
+      status: 'awaiting_approval',
+    }
+    state.pendingActionId = actionId
+    state.pendingAction = actionPayload
     return {
       text: 'I prepared a draft for the captured CO₂ opportunity. Publication is paused because monthly quantity and composition evidence are still missing.',
       card: 'action',
-      payload: {
-        actionId: `action-listing-${Date.now()}`,
-        operation: 'create_listing_draft',
-        summary: 'Draft listing: Captured CO₂ stream',
-        instruction: 'Create draft listing. Publication is paused pending evidence validation.',
-        status: 'awaiting_approval',
-      },
+      payload: actionPayload,
       view: 'process',
     }
   }
@@ -1729,6 +1885,7 @@ function assistantResponse(text) {
 
   return { text: 'I can help with that. I’ll keep the result grounded in your saved records and show the exact next action.' }
 }
+
 
 async function sendMessage(text) {
   const trimmed = text.trim()
