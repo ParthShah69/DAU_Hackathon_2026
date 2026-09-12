@@ -62,6 +62,9 @@ const fallbackDemoActors = [
   { id: 'user-reviewer', displayName: 'Reviewer demo', organizationId: 'org-climateworks', organizationName: 'ClimateWorks Collective', organizationKind: 'ngo', roleLabel: 'NGO' },
   { id: 'user-contributor', displayName: 'Contributor demo', organizationId: 'org-rivera', organizationName: 'Rivera Foods & Beverages', organizationKind: 'contributor', roleLabel: 'Sustainability contributor' },
 ]
+const fallbackNegotiations = [
+  { id: 'demo-negotiation-a', counterparty: 'CarbonStone Materials', status: 'in_negotiation', summary: { quantity: '80', unit: 'tonnes/month', purity: '≥ 98.0% dry basis', priceBasis: '₹2,120/t ex-works', delivery: 'Road tanker to Rajkot', schedule: 'October 2026' }, messages: [{ organizationId: 'org-greenbuild', content: 'We can take 80 tonnes per month for curing trials, subject to the latest moisture and CO analysis.', createdAt: '12 Sep · 08:30' }, { organizationId: 'org-carbonstone', content: 'We can reserve 80 tonnes in October. Propose a 20-tonne minimum tanker dispatch.', createdAt: '12 Sep · 09:20' }] }
+]
 
 const processSteps = [
   ['01', 'Capture', 'Process gas collected at the stack or separator', 'input'],
@@ -469,6 +472,8 @@ async function hydrate() {
   state.auth.unlocked = true
   if (isDemoMode) {
     state.live.status = 'demo'
+    state.data.listings = fallbackListingRecords.map((record) => mapListing(record))
+    state.data.negotiations = fallbackNegotiations
     seedAssistantGreeting()
     render()
     return
