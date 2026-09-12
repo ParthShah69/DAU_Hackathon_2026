@@ -1,6 +1,9 @@
 param(
   [int]$ApiPort = 8080,
   [int]$WebPort = 4173,
+  [ValidateSet('ollama', 'heuristic')]
+  [string]$AssistantProvider = 'ollama',
+  [string]$OllamaModel = 'qwen3:4b',
   [switch]$Force
 )
 
@@ -25,8 +28,14 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 
 $previousPort = $env:PORT
 $previousApiOrigin = $env:API_ORIGIN
+$previousAssistantProvider = $env:ASSISTANT_PROVIDER
+$previousOllamaModel = $env:OLLAMA_MODEL
+$previousOllamaTimeout = $env:OLLAMA_TIMEOUT_MS
 try {
   $env:PORT = "$ApiPort"
+  $env:ASSISTANT_PROVIDER = $AssistantProvider
+  $env:OLLAMA_MODEL = $OllamaModel
+  $env:OLLAMA_TIMEOUT_MS = '45000'
   $api = Start-Process -FilePath node -ArgumentList 'apps/api/src/server.js' -WorkingDirectory $repoRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $runtimeDir 'api-local.log') -RedirectStandardError (Join-Path $runtimeDir 'api-local.err.log') -PassThru
 
   $env:PORT = "$WebPort"
@@ -35,6 +44,9 @@ try {
 } finally {
   $env:PORT = $previousPort
   $env:API_ORIGIN = $previousApiOrigin
+  $env:ASSISTANT_PROVIDER = $previousAssistantProvider
+  $env:OLLAMA_MODEL = $previousOllamaModel
+  $env:OLLAMA_TIMEOUT_MS = $previousOllamaTimeout
 }
 
 Start-Sleep -Milliseconds 700
@@ -47,4 +59,5 @@ try {
 
 Write-Host "API process: $($api.Id)  http://127.0.0.1:$ApiPort"
 Write-Host "Web process: $($web.Id)  http://127.0.0.1:$WebPort"
+Write-Host "Assistant: $AssistantProvider ($OllamaModel when Ollama is available; deterministic fallback otherwise)"
 Write-Host "Open: http://127.0.0.1:$WebPort/marketplace?api=/api/v1&user=user-buyer"

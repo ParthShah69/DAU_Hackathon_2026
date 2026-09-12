@@ -7,6 +7,7 @@ const { runMatch, getMatchRun } = require('./domain/matching');
 const { createRequirement, listRequirements, getRequirement } = require('./domain/requirements');
 const { listDrafts, getDraftDetail, patchListingDraft } = require('./domain/listing-drafts');
 const { createConversation, getConversationTranscript, orchestrateMessage, executeAction } = require('./domain/assistant');
+const { narrateEvidenceBoundOutput, providerStatus } = require('./infra/ollama-provider');
 const { createListing, getListing, patchListing, publishListing, archiveListing, listListings } = require('./domain/listings');
 const { patchRequirement } = require('./domain/requirements');
 const { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers } = require('./domain/requests');
@@ -107,6 +108,17 @@ function publicCapabilities() {
     ],
     safety: ['No arbitrary SQL, shell, URL or code execution tool is exposed', 'AI output is a proposal; deterministic services own values and writes', 'External or commercial actions require an exact action preview and confirmation']
   };
+}
+
+async function enrichAssistantOutput(store, output) {
+  const enhanced = await narrateEvidenceBoundOutput(output);
+  if (enhanced.applied) {
+    store.replace('messages', output.assistantMessageId, {
+      content: enhanced.output.response.text,
+      metadata: { intent: enhanced.output.intent.name, cards: enhanced.output.response.cards, context: enhanced.output.context, provenance: enhanced.output.response.provenance }
+    });
+  }
+  return enhanced.output;
 }
 
 function createApp({ store = new Store(), persistence = null } = {}) {
@@ -370,7 +382,7 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         });
         sseEvent(response, 'workflow.started', { conversationId: conversationStreamMatch[1], requestId });
         try {
-          const output = orchestrateMessage(store, { conversationId: conversationStreamMatch[1], actorUserId: actor.userId, actorOrganizationId: actor.organizationId, text: body.message || body.text, now: new Date() });
+          const output = await enrichAssistantOutput(store, orchestrateMessage(store, { conversationId: conversationStreamMatch[1], actorUserId: actor.userId, actorOrganizationId: actor.organizationId, text: body.message || body.text, now: new Date() }));
           sseEvent(response, 'assistant.result', output);
           sseEvent(response, 'workflow.completed', { workflowId: output.workflowId, state: output.state });
         } catch (error) {
@@ -382,7 +394,7 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       const conversationMessageMatch = path.match(/^\/api\/v1\/conversations\/([^/]+)\/messages$/);
       if (request.method === 'POST' && conversationMessageMatch) {
         const body = await readJson(request);
-        jsonResponse(response, 200, orchestrateMessage(store, { conversationId: conversationMessageMatch[1], actorUserId: actor.userId, actorOrganizationId: actor.organizationId, text: body.message || body.text, now: new Date() }), requestId);
+        jsonResponse(response, 200, await enrichAssistantOutput(store, orchestrateMessage(store, { conversationId: conversationMessageMatch[1], actorUserId: actor.userId, actorOrganizationId: actor.organizationId, text: body.message || body.text, now: new Date() })), requestId);
         return;
       }
 
@@ -443,6 +455,10 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       }
       if (request.method === 'GET' && path === '/api/v1/activity') {
         jsonResponse(response, 200, { items: store.findMany('auditEvents', (item) => item.organizationId === actor.organizationId) }, requestId);
+        return;
+      }
+      if (request.method === 'GET' && path === '/api/v1/assistant/provider') {
+        jsonResponse(response, 200, await providerStatus(), requestId);
         return;
       }
 
