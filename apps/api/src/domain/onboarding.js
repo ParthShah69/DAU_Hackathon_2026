@@ -2,9 +2,9 @@ const { randomUUID } = require('node:crypto');
 const { DomainError } = require('./errors');
 
 const REQUIRED = {
-  supplier: ['organizationName', 'legalEntityType', 'industry', 'facilityLocation', 'contactEmail', 'annualCaptureEstimate', 'availableQuantity', 'supplyFrequency', 'sourceProcess', 'purity', 'form'],
-  buyer: ['organizationName', 'industry', 'facilityLocation', 'contactEmail', 'requiredAmount', 'requiredFrequency', 'minimumPurity', 'requiredForm', 'deliveryLocation'],
-  ngo: ['organizationName', 'registrationNumber', 'mission', 'operationalRegions', 'contactEmail', 'projectCategory', 'fundingRequirement'],
+  supplier: ['organizationName', 'legalEntityType', 'industry', 'facilityLocation', 'contactEmail', 'annualProductionTonnes', 'annualProcessCo2Tonnes', 'annualFuelCo2Tonnes', 'annualElectricityKwh', 'annualCaptureEstimate', 'availableQuantity', 'supplyFrequency', 'sourceProcess', 'purity', 'form'],
+  buyer: ['organizationName', 'industry', 'facilityLocation', 'contactEmail', 'annualProductionTonnes', 'annualElectricityKwh', 'requiredAmount', 'requiredFrequency', 'minimumPurity', 'requiredForm', 'deliveryLocation'],
+  ngo: ['organizationName', 'registrationNumber', 'mission', 'operationalRegions', 'contactEmail', 'projectCategory', 'fundingRequirement', 'projectBaselineTonnes', 'expectedAnnualReductionTonnes'],
   contributor: ['organizationName', 'industry', 'contactEmail', 'annualEmissions', 'emissionsGap', 'sustainabilityBudget', 'contributionType']
 };
 
