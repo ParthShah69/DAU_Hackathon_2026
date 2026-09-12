@@ -288,13 +288,14 @@ function getContextStatus(conversation) {
   };
 }
 
-function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizationId, text, now = new Date() }) {
+function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizationId, text, now = new Date(), plan = null }) {
   const conversation = getConversation(store, conversationId, actorOrganizationId);
   const content = String(text || '').trim();
   requireValue(content, 'message');
   if (content.length > MAX_MESSAGE_LENGTH) throw new DomainError('MESSAGE_TOO_LARGE', `Message is limited to ${MAX_MESSAGE_LENGTH} characters`);
   const userMessage = addMessage(store, conversation, 'user', content);
-  const intent = detectIntent(content);
+  const intent = plan?.intent || detectIntent(content);
+  const toolArgs = plan?.arguments || {};
   const workflow = store.insert('workflows', {
     id: `workflow-${randomUUID()}`,
     conversationId,
@@ -303,9 +304,10 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
     state: 'running',
     startedAt: now.toISOString(),
     completedAt: null,
-    provider: 'heuristic-demo',
+    provider: plan ? 'ollama-agent' : 'heuristic-demo',
     assistantVersion: ASSISTANT_VERSION,
-    stepIds: []
+    stepIds: [],
+    plan: plan || null
   });
   let response;
   let state = 'completed';
@@ -331,27 +333,33 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
         response = buildResponse('Cancelled. No marketplace record was changed.', [{ type: 'action_receipt', actionId: action.id, status: 'rejected', operation: action.operation }]);
       }
     } else if (intent === 'discover_process_outputs') {
-      const result = discoverProcess(store, { actorOrganizationId, description: content, now });
+      const description = toolArgs.description || content;
+      const result = discoverProcess(store, { actorOrganizationId, description, now });
       conversation.context.activeProcessId = result.process.id;
       conversation.context.activeDiscoveryCandidateIds = result.candidates.map((candidate) => candidate.id);
       response = buildResponse(`I found ${result.candidates.length} possible output${result.candidates.length === 1 ? '' : 's'} to review. They are hypotheses until you add measured quantity and evidence.`, [{ type: 'process_discovery', ...result }], { context: getContextStatus(conversation) });
     } else if (intent === 'prepare_listing') {
-      if (!conversation.context.activeProcessId) {
+      const targetProcessId = toolArgs.processId || conversation.context.activeProcessId;
+      if (!targetProcessId) {
         response = buildResponse('First describe the process that creates the output. I will identify candidate resources before preparing a listing.', [], { needsInput: true, missingFields: ['process description'] });
       } else {
-        const candidateId = conversation.context.activeDiscoveryCandidateIds[0];
+        const candidateId = toolArgs.discoveryCandidateId || conversation.context.activeDiscoveryCandidateIds[0];
         const candidate = store.findOne('discoveryCandidates', (item) => item.id === candidateId && item.organizationId === actorOrganizationId);
         if (!candidate) throw new DomainError('NOT_FOUND', 'The discovery opportunity is no longer available', 404);
-        const action = createAction(store, { conversation, actorUserId, operation: 'create_listing_draft', riskClass: 'reversible_private', payload: { processId: conversation.context.activeProcessId, discoveryCandidateId: candidate.id }, summary: `Prepare a draft for “${candidate.label}”` , now });
+        const action = createAction(store, { conversation, actorUserId, operation: 'create_listing_draft', riskClass: 'reversible_private', payload: { processId: targetProcessId, discoveryCandidateId: candidate.id }, summary: `Prepare a draft for “${candidate.label}”` , now });
         state = 'waiting_for_approval';
         response = buildResponse('I prepared a draft action. The draft will stay private and cannot publish until its quantity and evidence are complete.', [actionCard(action)], { waitingForApproval: true });
       }
     } else if (intent === 'create_requirement') {
-      const quantity = parseQuantity(content);
-      const period = parsePeriod(content);
+      const quantity = (typeof toolArgs.quantityTonnes === 'number' && toolArgs.quantityTonnes > 0) ? toolArgs.quantityTonnes : parseQuantity(content);
+      const period = (toolArgs.periodStart && toolArgs.periodEnd) ? { start: toolArgs.periodStart, end: toolArgs.periodEnd } : parsePeriod(content);
       const missingFields = [];
-      if (!quantity) missingFields.push('quantity in tonnes');
-      if (!period) missingFields.push('delivery period, for example October 2026');
+      if (Array.isArray(plan?.missingFields) && plan.missingFields.length > 0) {
+        missingFields.push(...plan.missingFields);
+      } else {
+        if (!quantity) missingFields.push('quantity in tonnes');
+        if (!period) missingFields.push('delivery period, for example October 2026');
+      }
       if (missingFields.length > 0) {
         response = buildResponse('I can create the buyer requirement, but I need a little more information.', [{ type: 'missing_fields', fields: missingFields, examples: { quantity: '100 tonnes', period: 'October 2026', purity: 'at least 95%' } }], { needsInput: true, missingFields });
       } else {
@@ -361,10 +369,10 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
           periodStart: period.start,
           periodEnd: period.end,
           quantityTonnes: quantity,
-          minimumPurityMolPct: parsePurity(content) ?? 0,
-          acceptableForms: parseForm(content),
-          maxDistanceKm: parseDistance(content),
-          maxDeliveredPaisePerTonne: parseBudget(content),
+          minimumPurityMolPct: (typeof toolArgs.minimumPurityMolPct === 'number') ? toolArgs.minimumPurityMolPct : (parsePurity(content) ?? 0),
+          acceptableForms: (Array.isArray(toolArgs.acceptableForms) && toolArgs.acceptableForms.length > 0) ? toolArgs.acceptableForms : parseForm(content),
+          maxDistanceKm: (typeof toolArgs.maxDistanceKm === 'number') ? toolArgs.maxDistanceKm : parseDistance(content),
+          maxDeliveredPaisePerTonne: (typeof toolArgs.maxDeliveredPaisePerTonne === 'number') ? toolArgs.maxDeliveredPaisePerTonne : parseBudget(content),
           limits: []
         };
         const action = createAction(store, { conversation, actorUserId, operation: 'create_requirement', riskClass: 'reversible_private', payload, summary: `Create a ${quantity} tonne buyer requirement for ${period.start} to ${period.end}`, now });
@@ -372,7 +380,8 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
         response = buildResponse('Here is the requirement I extracted. Confirm it to save an editable draft.', [actionCard(action)], { waitingForApproval: true });
       }
     } else if (intent === 'find_matches') {
-      const requirement = resolveRequirement(store, conversation, actorOrganizationId, content);
+      const explicitReq = toolArgs.requirementId ? store.findOne('requirements', (item) => item.id === toolArgs.requirementId && item.organizationId === actorOrganizationId) : null;
+      const requirement = explicitReq || resolveRequirement(store, conversation, actorOrganizationId, content);
       if (!requirement) {
         response = buildResponse('I do not have a buyer requirement yet. Tell me the quantity and delivery period, for example “need 100 tonnes in October 2026”.', [], { needsInput: true });
       } else {
@@ -396,7 +405,8 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
         response = buildResponse('Create or select a buyer requirement first so I can prepare a request with exact terms.', [], { needsInput: true });
       } else {
         const match = conversation.context.activeMatchRunId ? getMatchRun(store, conversation.context.activeMatchRunId, actorOrganizationId) : runMatch(store, { requirementId: requirement.id, actorOrganizationId, now });
-        const result = resolveMatchResult(store, conversation, content) || match.results.find((item) => item.status === 'compatible');
+        const targetSearch = toolArgs.target || toolArgs.selection || content;
+        const result = resolveMatchResult(store, conversation, String(targetSearch)) || match.results.find((item) => item.status === 'compatible');
         if (!result || result.status !== 'compatible') {
           response = buildResponse('I could not prepare a request because there is no currently compatible option. I can show the evidence gaps and failed checks.', [{ type: 'match_results', ...match }], { needsInput: true });
         } else {
@@ -424,9 +434,10 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
         }
       }
     } else if (intent === 'manage_request') {
-      const request = [...store.supplyRequests].reverse().find((item) => item.id === conversation.context.activeRequestId || content.includes(item.id));
+      const explicitRequestId = toolArgs.requestId;
+      const request = [...store.supplyRequests].reverse().find((item) => item.id === explicitRequestId || item.id === conversation.context.activeRequestId || content.includes(item.id));
       if (!request) response = buildResponse('I could not find a request to manage in this conversation.', [], { needsInput: true });
-      else if (/\baccept/.test(content.toLowerCase())) {
+      else if (toolArgs.action === 'accept' || /\baccept/.test(content.toLowerCase())) {
         const period = store.findOne('supplyPeriods', (item) => item.id === request.supplyPeriodId);
         const action = createAction(store, {
           conversation,
@@ -444,7 +455,12 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
       const action = pendingAction(store, conversation);
       response = buildResponse('I keep the current process, requirement, match run and pending approval in this conversation. I use the marketplace services for calculations and writes, so a chat answer cannot bypass ownership or quality rules.', action ? [actionCard(action)] : [], { context: getContextStatus(conversation) });
     } else {
-      response = buildResponse('I can discover outputs from a process, prepare a listing draft, create a buyer requirement, find and compare supply, or prepare a request. Tell me what you want to do in your own words.', [{ type: 'capabilities', actions: ['discover_process_outputs', 'prepare_listing', 'create_requirement', 'find_matches', 'compare_options', 'prepare_request'] }], { needsInput: true });
+      const missingFields = Array.isArray(plan?.missingFields) ? plan.missingFields : [];
+      if (missingFields.length > 0) {
+        response = buildResponse('I need a few more details to proceed.', [{ type: 'missing_fields', fields: missingFields }], { needsInput: true, missingFields });
+      } else {
+        response = buildResponse('I can discover outputs from a process, prepare a listing draft, create a buyer requirement, find and compare supply, or prepare a request. Tell me what you want to do in your own words.', [{ type: 'capabilities', actions: ['discover_process_outputs', 'prepare_listing', 'create_requirement', 'find_matches', 'compare_options', 'prepare_request'] }], { needsInput: true });
+      }
     }
   } catch (error) {
     state = 'failed';
@@ -462,7 +478,13 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
     workflowId: workflow.id,
     userMessageId: userMessage.id,
     assistantMessageId: assistantMessage.id,
-    intent: { name: intent, confidence: 0.86, provider: 'heuristic-demo', schemaVersion: 'intent-v1' },
+    intent: {
+      name: intent,
+      confidence: plan ? 0.95 : 0.86,
+      provider: plan ? 'ollama-agent' : 'heuristic-demo',
+      schemaVersion: 'intent-v1',
+      plan: plan || null
+    },
     state,
     response,
     context: getContextStatus(conversation)

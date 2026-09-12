@@ -6,8 +6,8 @@ const { discoverProcess, getProcess } = require('./domain/process-discovery');
 const { runMatch, getMatchRun } = require('./domain/matching');
 const { createRequirement, listRequirements, getRequirement } = require('./domain/requirements');
 const { listDrafts, getDraftDetail, patchListingDraft } = require('./domain/listing-drafts');
-const { createConversation, getConversationTranscript, orchestrateMessage, executeAction } = require('./domain/assistant');
-const { narrateEvidenceBoundOutput, providerStatus } = require('./infra/ollama-provider');
+const { createConversation, getConversation, getConversationTranscript, orchestrateMessage, executeAction } = require('./domain/assistant');
+const { configuration, planTurn, synthesizeTurnResponse, narrateEvidenceBoundOutput, providerStatus } = require('./infra/ollama-provider');
 const { createListing, getListing, patchListing, publishListing, archiveListing, listListings } = require('./domain/listings');
 const { patchRequirement } = require('./domain/requirements');
 const { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers, requestFromListing } = require('./domain/requests');
@@ -138,9 +138,12 @@ function listingDetail(store, stream) {
 }
 
 function publicCapabilities() {
+  const config = configuration();
   return {
-    assistantVersion: 'carbonbridge-orchestrator-demo-v1',
-    provider: 'heuristic-demo',
+    assistantVersion: 'carbonbridge-orchestrator-agentic-v2',
+    provider: config.provider,
+    model: config.model,
+    mode: config.enabled ? 'end-to-end-llm-agent' : 'heuristic-fallback',
     typedTools: [
       { name: 'discover_process_outputs', mode: 'read', riskClass: 'read_calculation' },
       { name: 'search_matches', mode: 'read', riskClass: 'read_calculation' },
@@ -163,6 +166,56 @@ async function enrichAssistantOutput(store, output) {
     });
   }
   return enhanced.output;
+}
+
+async function processAssistantTurn(store, { conversationId, actor, text, now = new Date(), onProgress = null }) {
+  const conversation = getConversation(store, conversationId, actor.organizationId);
+  const history = store.findMany('messages', (item) => item.conversationId === conversationId).slice(-4);
+  const context = {
+    activeProcessId: conversation.context.activeProcessId,
+    activeRequirementId: conversation.context.activeRequirementId,
+    activeMatchRunId: conversation.context.activeMatchRunId,
+    activeRequestId: conversation.context.activeRequestId,
+    pendingActionId: conversation.context.pendingActionId
+  };
+
+  if (typeof onProgress === 'function') onProgress('assistant.planning', { conversationId });
+
+  let plan = null;
+  try {
+    plan = await planTurn({ message: text, history, context, actor });
+  } catch (error) {
+    plan = null;
+  }
+
+  if (typeof onProgress === 'function') onProgress('assistant.tool_executing', { tool: plan?.tool || 'heuristic' });
+
+  const output = orchestrateMessage(store, {
+    conversationId,
+    actorUserId: actor.userId,
+    actorOrganizationId: actor.organizationId,
+    text,
+    now,
+    plan
+  });
+
+  if (typeof onProgress === 'function') onProgress('assistant.synthesizing', { state: output.state });
+
+  const enhanced = await synthesizeTurnResponse(output, { plan });
+  if (enhanced.applied) {
+    store.replace('messages', output.assistantMessageId, {
+      content: enhanced.output.response.text,
+      metadata: {
+        intent: enhanced.output.intent.name,
+        cards: enhanced.output.response.cards,
+        context: enhanced.output.context,
+        provenance: enhanced.output.response.provenance
+      }
+    });
+    return enhanced.output;
+  }
+
+  return output;
 }
 
 function createApp({ store = new Store(), persistence = null } = {}) {
@@ -477,7 +530,13 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         });
         sseEvent(response, 'workflow.started', { conversationId: conversationStreamMatch[1], requestId });
         try {
-          const output = await enrichAssistantOutput(store, orchestrateMessage(store, { conversationId: conversationStreamMatch[1], actorUserId: actor.userId, actorOrganizationId: actor.organizationId, text: body.message || body.text, now: new Date() }));
+          const output = await processAssistantTurn(store, {
+            conversationId: conversationStreamMatch[1],
+            actor,
+            text: body.message || body.text,
+            now: new Date(),
+            onProgress: (event, data) => sseEvent(response, event, data)
+          });
           sseEvent(response, 'assistant.result', output);
           sseEvent(response, 'workflow.completed', { workflowId: output.workflowId, state: output.state });
         } catch (error) {
@@ -489,7 +548,13 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       const conversationMessageMatch = path.match(/^\/api\/v1\/conversations\/([^/]+)\/messages$/);
       if (request.method === 'POST' && conversationMessageMatch) {
         const body = await readJson(request);
-        jsonResponse(response, 200, await enrichAssistantOutput(store, orchestrateMessage(store, { conversationId: conversationMessageMatch[1], actorUserId: actor.userId, actorOrganizationId: actor.organizationId, text: body.message || body.text, now: new Date() })), requestId, request);
+        const output = await processAssistantTurn(store, {
+          conversationId: conversationMessageMatch[1],
+          actor,
+          text: body.message || body.text,
+          now: new Date()
+        });
+        jsonResponse(response, 200, output, requestId, request);
         return;
       }
 
