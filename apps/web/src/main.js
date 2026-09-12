@@ -1297,7 +1297,15 @@ function renderView() {
 function assistantResponse(text) {
   const lower = text.toLowerCase()
   if (lower.includes('process') || lower.includes('output') || lower.includes('sell') || lower.includes('generate')) return { text: 'I mapped the process into potential outputs. Select an opportunity to see its assumptions and the evidence needed before it can become a listing.', card: 'discovery', view: 'process' }
-  if (lower.includes('match') || lower.includes('buyer') || lower.includes('compare') || lower.includes('deal')) return { text: 'I found compatible buyer needs and compared the current options using purity, availability, distance and delivered cost. The numbers below come from the saved match run.', card: 'comparison', view: lower.includes('buyer') ? 'requirements' : 'marketplace' }
+  if (lower.includes('requirement') || (lower.includes('need') && lower.includes('co2')) || lower.includes('looking for') || lower.includes('buying')) {
+    const hasQty = /\d+\s*(?:tonnes?|tons?|t)\b/i.test(lower)
+    const hasPeriod = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(lower)
+    if (!hasQty || !hasPeriod) {
+      return { text: 'I can create the buyer requirement, but I need a little more information: quantity in tonnes and delivery period (e.g. October 2026).', card: 'checklist', view: 'requirements' }
+    }
+    return { text: 'Here is the requirement I extracted. Confirm it to save an editable draft.', card: 'action', view: 'requirements' }
+  }
+  if (lower.includes('match') || lower.includes('compare') || lower.includes('deal') || lower.includes('supplier')) return { text: 'I found compatible options in the marketplace. The numbers below come from the saved match run.', card: 'comparison', view: 'marketplace' }
   if (lower.includes('list') || lower.includes('publish') || lower.includes('draft')) return { text: 'I prepared a draft for the captured CO₂ opportunity. Publication is paused because monthly quantity and composition evidence are still missing.', card: 'action', view: 'process' }
   if (lower.includes('evidence') || lower.includes('document') || lower.includes('quality')) return { text: 'Your next high-value step is to add the latest composition report and monthly capture estimate. I’ll keep the opportunity private until a reviewer validates it.', card: 'checklist', view: 'evidence' }
   if (lower.includes('report') || lower.includes('analytics') || lower.includes('impact')) return { text: 'I can generate a reproducible report from your current dashboard payload. Choose New report to stamp the snapshot.', card: 'report', view: 'reports' }
@@ -1311,9 +1319,19 @@ async function sendMessage(text) {
   state.busy = true
   render()
   try {
-    if (!isDemoMode && state.live.status !== 'fallback') {
-      await sendLiveMessage(trimmed)
-    } else {
+    let sentLive = false
+    if (!isDemoMode) {
+      try {
+        await sendLiveMessage(trimmed)
+        sentLive = true
+        state.live.status = 'connected'
+      } catch (liveErr) {
+        if (state.live.status === 'connected') {
+          throw liveErr
+        }
+      }
+    }
+    if (!sentLive) {
       const response = assistantResponse(trimmed)
       state.messages.push({ role: 'assistant', text: response.text, time: timeNow(), card: response.card })
       if (response.view) navigate(response.view)

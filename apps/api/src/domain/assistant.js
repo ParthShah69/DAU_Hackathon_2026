@@ -60,18 +60,19 @@ function addMessage(store, conversation, role, content, metadata = {}) {
   });
 }
 
-function detectIntent(text) {
+function detectIntent(text, context = {}) {
   const normalized = text.toLowerCase();
   if (/^(yes|y|confirm|approve|approved|go ahead|do it|proceed|okay|ok)\b/.test(normalized)) return 'confirm_action';
   if (/\b(cancel|stop|never mind|discard)\b/.test(normalized)) return 'cancel_action';
   if (/(compare|side by side|which (one|option)|best deal|cheapest)/.test(normalized)) return 'compare_options';
-  if (/\b(find|search|match|source|available)\b/.test(normalized) && /\b(co2|carbon|tonne|ton|requirement|listing|option|supplier|buyer|material|deal|supply)\b/.test(normalized)) return 'find_matches';
+  if (/\b(find|search|match|source|available|show|list|get|see)\b/.test(normalized) && /\b(co2|carbon|tonne|ton|requirement|listing|listings|option|options|supplier|suppliers|buyer|buyers|material|deal|deals|supply)\b/.test(normalized)) return 'find_matches';
   if (/(accept|decline|reject).*\brequest\b/.test(normalized)) return 'manage_request';
   if (/(\brequest\b|\breserve\b|send.*supplier|\bbuy\b|\bpurchase\b)/.test(normalized)) return 'prepare_request';
   if (/(requirement|we need|looking for|need \d|buying)/.test(normalized)) return 'create_requirement';
+  if (context?.draftRequirement && (parsePeriod(normalized) || parseQuantity(normalized))) return 'create_requirement';
   if (/(list|publish|sell|marketplace|offer|draft)/.test(normalized) && /(process|output|co2|carbon|stream|material|listing)/.test(normalized)) return 'prepare_listing';
   if (/(process|produce|production|manufactur|generate|byproduct|waste|output|what can i sell|valuable)/.test(normalized)) return 'discover_process_outputs';
-  if (/(explain|why|how|help|status|what did)/.test(normalized)) return 'explain_context';
+  if (/\b(explain|why|how|help|status|what did)\b/.test(normalized)) return 'explain_context';
   return 'clarify';
 }
 
@@ -294,7 +295,7 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
   requireValue(content, 'message');
   if (content.length > MAX_MESSAGE_LENGTH) throw new DomainError('MESSAGE_TOO_LARGE', `Message is limited to ${MAX_MESSAGE_LENGTH} characters`);
   const userMessage = addMessage(store, conversation, 'user', content);
-  const intent = plan?.intent || detectIntent(content);
+  const intent = plan?.intent || detectIntent(content, conversation.context);
   const toolArgs = plan?.arguments || {};
   const workflow = store.insert('workflows', {
     id: `workflow-${randomUUID()}`,
@@ -351,8 +352,15 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
         response = buildResponse('I prepared a draft action. The draft will stay private and cannot publish until its quantity and evidence are complete.', [actionCard(action)], { waitingForApproval: true });
       }
     } else if (intent === 'create_requirement') {
-      const quantity = (typeof toolArgs.quantityTonnes === 'number' && toolArgs.quantityTonnes > 0) ? toolArgs.quantityTonnes : parseQuantity(content);
-      const period = (toolArgs.periodStart && toolArgs.periodEnd) ? { start: toolArgs.periodStart, end: toolArgs.periodEnd } : parsePeriod(content);
+      const existingDraft = conversation.context.draftRequirement || {};
+      const parsedQty = parseQuantity(content);
+      const quantity = (typeof toolArgs.quantityTonnes === 'number' && toolArgs.quantityTonnes > 0)
+        ? toolArgs.quantityTonnes
+        : (parsedQty ?? existingDraft.quantityTonnes);
+      const parsedPeriodVal = parsePeriod(content);
+      const period = (toolArgs.periodStart && toolArgs.periodEnd)
+        ? { start: toolArgs.periodStart, end: toolArgs.periodEnd }
+        : (parsedPeriodVal ?? existingDraft.period);
       const missingFields = [];
       if (Array.isArray(plan?.missingFields) && plan.missingFields.length > 0) {
         missingFields.push(...plan.missingFields);
@@ -361,18 +369,28 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
         if (!period) missingFields.push('delivery period, for example October 2026');
       }
       if (missingFields.length > 0) {
+        conversation.context.draftRequirement = {
+          quantityTonnes: quantity || null,
+          period: period || null,
+          minimumPurityMolPct: (typeof toolArgs.minimumPurityMolPct === 'number') ? toolArgs.minimumPurityMolPct : (parsePurity(content) ?? existingDraft.minimumPurityMolPct),
+          acceptableForms: (Array.isArray(toolArgs.acceptableForms) && toolArgs.acceptableForms.length > 0) ? toolArgs.acceptableForms : (content.toLowerCase().includes('liquid') || content.toLowerCase().includes('solid') ? parseForm(content) : existingDraft.acceptableForms),
+          maxDistanceKm: (typeof toolArgs.maxDistanceKm === 'number') ? toolArgs.maxDistanceKm : (parseDistance(content) ?? existingDraft.maxDistanceKm),
+          maxDeliveredPaisePerTonne: (typeof toolArgs.maxDeliveredPaisePerTonne === 'number') ? toolArgs.maxDeliveredPaisePerTonne : (parseBudget(content) ?? existingDraft.maxDeliveredPaisePerTonne)
+        };
+        conversation.updatedAt = now.toISOString();
         response = buildResponse('I can create the buyer requirement, but I need a little more information.', [{ type: 'missing_fields', fields: missingFields, examples: { quantity: '100 tonnes', period: 'October 2026', purity: 'at least 95%' } }], { needsInput: true, missingFields });
       } else {
+        conversation.context.draftRequirement = null;
         const payload = {
           name: 'Assistant-created buyer requirement',
           siteId: 'site-buyer',
           periodStart: period.start,
           periodEnd: period.end,
           quantityTonnes: quantity,
-          minimumPurityMolPct: (typeof toolArgs.minimumPurityMolPct === 'number') ? toolArgs.minimumPurityMolPct : (parsePurity(content) ?? 0),
-          acceptableForms: (Array.isArray(toolArgs.acceptableForms) && toolArgs.acceptableForms.length > 0) ? toolArgs.acceptableForms : parseForm(content),
-          maxDistanceKm: (typeof toolArgs.maxDistanceKm === 'number') ? toolArgs.maxDistanceKm : parseDistance(content),
-          maxDeliveredPaisePerTonne: (typeof toolArgs.maxDeliveredPaisePerTonne === 'number') ? toolArgs.maxDeliveredPaisePerTonne : parseBudget(content),
+          minimumPurityMolPct: (typeof toolArgs.minimumPurityMolPct === 'number') ? toolArgs.minimumPurityMolPct : (parsePurity(content) ?? existingDraft.minimumPurityMolPct ?? 0),
+          acceptableForms: (Array.isArray(toolArgs.acceptableForms) && toolArgs.acceptableForms.length > 0) ? toolArgs.acceptableForms : (content.toLowerCase().includes('liquid') || content.toLowerCase().includes('solid') ? parseForm(content) : (existingDraft.acceptableForms ?? ['gas'])),
+          maxDistanceKm: (typeof toolArgs.maxDistanceKm === 'number') ? toolArgs.maxDistanceKm : (parseDistance(content) ?? existingDraft.maxDistanceKm ?? null),
+          maxDeliveredPaisePerTonne: (typeof toolArgs.maxDeliveredPaisePerTonne === 'number') ? toolArgs.maxDeliveredPaisePerTonne : (parseBudget(content) ?? existingDraft.maxDeliveredPaisePerTonne ?? null),
           limits: []
         };
         const action = createAction(store, { conversation, actorUserId, operation: 'create_requirement', riskClass: 'reversible_private', payload, summary: `Create a ${quantity} tonne buyer requirement for ${period.start} to ${period.end}`, now });
@@ -383,7 +401,8 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
       const explicitReq = toolArgs.requirementId ? store.findOne('requirements', (item) => item.id === toolArgs.requirementId && item.organizationId === actorOrganizationId) : null;
       const requirement = explicitReq || resolveRequirement(store, conversation, actorOrganizationId, content);
       if (!requirement) {
-        response = buildResponse('I do not have a buyer requirement yet. Tell me the quantity and delivery period, for example “need 100 tonnes in October 2026”.', [], { needsInput: true });
+        const publishedStreams = store.findMany('streams', (stream) => stream.state === 'published');
+        response = buildResponse(`I found ${publishedStreams.length} published supplier listing${publishedStreams.length === 1 ? '' : 's'} in the marketplace. To match and calculate delivered prices for your exact needs, tell me your required quantity and delivery period (e.g. “need 100 tonnes in October 2026”).`, [{ type: 'marketplace_overview', count: publishedStreams.length, listings: publishedStreams.slice(0, 3).map((s) => ({ id: s.id, name: s.name, form: s.physicalForm })) }], { needsInput: true });
       } else {
         const result = runMatch(store, { requirementId: requirement.id, actorOrganizationId, now });
         conversation.context.activeRequirementId = requirement.id;
