@@ -34,6 +34,7 @@ The web shell is configured to use the same-origin `/api/v1` proxy by default. I
 - `infra/`: local PostgreSQL wiring for the future persistent API lane.
 - `docs/CARBONBRIDGE_ARCHITECTURE_V2.md`: complete architecture and domain rules.
 - `docs/CARBONBRIDGE_IMPLEMENTATION_PLAN_V2.md`: phased implementation, data formats, Sol/Terra lane ownership, evaluation thresholds and release gates.
+- `docs/CARBONBRIDGE_REMAINING_WORK.md`: inventory of what is still left against the V2 plan (phases, UI, API, data, tests and suggested build order).
 
 ## Important boundary
 
