@@ -21,6 +21,8 @@ const profile = readOption(args, '--profile', 'demo');
 const seed = readOption(args, '--seed', '26');
 const clock = readOption(args, '--clock', '2026-09-12T00:00:00Z');
 const outputOption = readOption(args, '--output', null);
+const apiUrl = readOption(args, '--api-url', null);
+const apply = args.includes('--apply');
 
 if (profile !== 'demo') {
   fail('only --profile demo is supported by this fixture adapter; real environments require an explicit database migration and review.');
@@ -36,7 +38,7 @@ if (profile !== 'demo') {
       seed,
       clock,
       idempotency_key: `carbonbridge-demo:${seed}:${clock}`,
-      mode: 'dry_run_fixture_adapter',
+      mode: apply ? 'runtime_api_adapter' : 'dry_run_fixture_adapter',
       dependency_order: [
         'organizations', 'users', 'knowledge_sources', 'knowledge_documents', 'knowledge_chunks',
         'process_profiles', 'process_scenarios', 'buyer_specification_examples', 'treatment_pathways',
@@ -52,6 +54,28 @@ if (profile !== 'demo') {
         'no network, provider credential or IoT device is required',
       ],
     };
+    if (apply) {
+      if (!apiUrl) {
+        fail('--apply requires --api-url, for example http://127.0.0.1:8080. Refusing to guess a target.');
+      } else {
+        const endpoint = new URL('/api/v1/demo/seed', apiUrl).toString();
+        let response;
+        try {
+          response = await fetch(endpoint, { method: 'POST', headers: { accept: 'application/json' } });
+        } catch (error) {
+          fail(`could not reach ${endpoint}: ${error.message}`);
+          process.exit();
+        }
+        let body;
+        try { body = await response.json(); } catch { fail(`${endpoint} did not return JSON`); process.exit(); }
+        if (!response.ok || body?.data?.status !== 'seeded') {
+          fail(`${endpoint} refused the demo seed (${response.status}): ${body?.data?.error?.message || body?.error?.message || 'unknown error'}`);
+          process.exit();
+        }
+        plan.runtime = { endpoint, status: body.data.status, source: body.data.source, counts: body.data.counts };
+        console.log(`Demo API seed applied at ${endpoint}.`);
+      }
+    }
     if (outputOption) {
       const outputPath = path.resolve(repoRoot, outputOption);
       await writeFile(outputPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8');

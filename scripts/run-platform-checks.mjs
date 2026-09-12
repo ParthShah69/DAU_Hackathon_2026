@@ -18,6 +18,7 @@ function run(command, args) {
 try {
   await run(process.execPath, ['scripts/validate-v2-fixtures.mjs']);
   await run(process.execPath, ['--test', 'tests/platform/v2-fixtures.test.mjs']);
+  await run(process.execPath, ['scripts/run-assistant-evals.mjs']);
   console.log('CarbonBridge platform checks passed.');
 } catch (error) {
   console.error(`Platform checks failed: ${error.message}`);

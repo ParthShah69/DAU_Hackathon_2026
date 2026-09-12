@@ -3,6 +3,10 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { Store } = require('../src/infra/store');
 const { createApp } = require('../src/app');
+const { createRequirement } = require('../src/domain/requirements');
+const { runMatch } = require('../src/domain/matching');
+const { createSupplyRequest, acceptRequest } = require('../src/domain/requests');
+const { createConversation, orchestrateMessage } = require('../src/domain/assistant');
 
 let server;
 let baseUrl;
@@ -219,4 +223,58 @@ test('assistant stream emits typed progress and result events', async () => {
   assert.match(body, /event: workflow\.started/);
   assert.match(body, /event: assistant\.result/);
   assert.match(body, /event: workflow\.completed/);
+});
+
+test('two simultaneous 60 tonne accepts reserve a 100 tonne period exactly once', async () => {
+  const store = new Store();
+  const now = new Date();
+  store.replace('supplyPeriods', 'period-d-oct', { totalTonnes: '100', reservedTonnes: '0', version: 1 });
+  const makeRequest = (suffix) => {
+    const requirement = createRequirement(store, {
+      actorOrganizationId: 'org-greenbuild', now,
+      payload: { name: `Concurrency ${suffix}`, siteId: 'site-buyer', periodStart: '2026-10-01', periodEnd: '2026-10-31', quantityTonnes: 60, minimumPurityMolPct: 95, acceptableForms: ['gas'], limits: [] }
+    });
+    const match = runMatch(store, { requirementId: requirement.id, actorOrganizationId: 'org-greenbuild', now });
+    const selected = match.results.find((item) => item.streamId === 'stream-d' && item.status === 'compatible');
+    assert.ok(selected, 'stream-d must remain a compatible 60 tonne candidate');
+    return createSupplyRequest(store, {
+      actorUserId: 'user-buyer', actorOrganizationId: 'org-greenbuild', now,
+      idempotencyKey: `concurrent-request-${suffix}`,
+      payload: { matchResultId: selected.id, quantityTonnes: 60, expectedRequirementVersion: requirement.version, expectedSupplyVersion: 1, expectedDeliveredPaisePerTonne: selected.economics.deliveredPaisePerTonne }
+    });
+  };
+  const [left, right] = [makeRequest('left'), makeRequest('right')];
+  const settled = await Promise.allSettled([
+    Promise.resolve().then(() => acceptRequest(store, { actorUserId: 'user-seller', actorOrganizationId: 'org-carbonstone', requestId: left.id, expectedVersion: 1, expectedSupplyVersion: 1, idempotencyKey: 'concurrent-accept-left', now })),
+    Promise.resolve().then(() => acceptRequest(store, { actorUserId: 'user-seller', actorOrganizationId: 'org-carbonstone', requestId: right.id, expectedVersion: 1, expectedSupplyVersion: 1, idempotencyKey: 'concurrent-accept-right', now })),
+  ]);
+  assert.equal(settled.filter((item) => item.status === 'fulfilled').length, 1, 'optimistic period version permits only one winner in the in-memory prototype');
+  assert.equal(store.findMany('reservations', (item) => item.status === 'active').length, 1);
+  assert.equal(store.findOne('supplyPeriods', (item) => item.id === 'period-d-oct').reservedTonnes, '60');
+});
+
+test('assistant approvals reject tampered and expired previews without writes', () => {
+  let clock = new Date('2026-09-12T00:00:00Z');
+  const store = new Store(() => clock);
+  const conversation = createConversation(store, { actorUserId: 'user-buyer', actorOrganizationId: 'org-greenbuild' });
+  const preview = orchestrateMessage(store, {
+    conversationId: conversation.id, actorUserId: 'user-buyer', actorOrganizationId: 'org-greenbuild',
+    text: 'Create a requirement for 50 tonnes in November 2026 with minimum purity 95%', now: clock
+  });
+  const actionId = preview.response.cards[0].actionId;
+  const action = store.findOne('actions', (item) => item.id === actionId);
+  action.payload.quantityTonnes = 999;
+  const tampered = orchestrateMessage(store, { conversationId: conversation.id, actorUserId: 'user-buyer', actorOrganizationId: 'org-greenbuild', text: 'confirm', now: clock });
+  assert.equal(tampered.response.cards[0].code, 'ACTION_TAMPERED');
+  assert.equal(store.findMany('requirements', (item) => item.name === 'Assistant-created buyer requirement').length, 0);
+
+  const second = orchestrateMessage(store, {
+    conversationId: conversation.id, actorUserId: 'user-buyer', actorOrganizationId: 'org-greenbuild',
+    text: 'Create a requirement for 50 tonnes in November 2026 with minimum purity 95%', now: clock
+  });
+  const expiryAction = store.findOne('actions', (item) => item.id === second.response.cards[0].actionId);
+  clock = new Date(new Date(expiryAction.expiresAt).getTime() + 1);
+  const expired = orchestrateMessage(store, { conversationId: conversation.id, actorUserId: 'user-buyer', actorOrganizationId: 'org-greenbuild', text: 'confirm', now: clock });
+  assert.equal(expired.response.cards[0].code, 'ACTION_EXPIRED');
+  assert.equal(store.findMany('requirements', (item) => item.name === 'Assistant-created buyer requirement').length, 0);
 });
