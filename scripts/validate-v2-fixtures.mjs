@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateSchemaInstance } from './json-schema-lite.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureDir = path.join(repoRoot, 'data', 'fixtures', 'v2');
@@ -54,6 +55,13 @@ async function loadJsonl(name) {
   return { value: lines.map((line, index) => {
     try { return JSON.parse(line); } catch (error) { fail(`${name}:${index + 1} is not valid JSONL: ${error.message}`); }
   }), text };
+}
+
+function assertSchema(schemaBundle, value, definition, label) {
+  const schema = schemaBundle.$defs?.[definition];
+  assert(schema, `missing schema definition ${definition}`);
+  const errors = validateSchemaInstance(schema, value, schemaBundle);
+  assert(errors.length === 0, `${label} violates ${definition}: ${errors.slice(0, 5).join('; ')}`);
 }
 
 function assertCommon(recordValue, label) {
@@ -209,6 +217,55 @@ function checkAssistantData(data) {
   assert(JSON.stringify(categoryCounts) === JSON.stringify(evalCategoryCounts), `eval category counts differ: ${JSON.stringify(categoryCounts)}`);
 }
 
+async function validateRuntimeSeed() {
+  const runtimePath = path.join(repoRoot, 'apps', 'api', 'data', 'demo', 'marketplace.json');
+  try {
+    await access(runtimePath);
+  } catch {
+    return false;
+  }
+  let seed;
+  try {
+    seed = JSON.parse(await readFile(runtimePath, 'utf8'));
+  } catch (error) {
+    fail(`apps/api/data/demo/marketplace.json is not valid JSON: ${error.message}`);
+  }
+  assert(seed.schemaVersion === '2.0', 'runtime seed schemaVersion must be 2.0');
+  assert(seed.source?.id === 'carbonbridge-demo-seed-v2', 'runtime seed source id drifted from the compatibility contract');
+  assert(seed.source?.kind === 'synthetic_demo', 'runtime seed must remain synthetic_demo');
+  assert(seed.source?.asOf === fixtureClock, 'runtime seed must use the fixed fixture clock');
+  for (const collection of ['organizations', 'users', 'memberships', 'sites', 'streams', 'qualityReports', 'analyteResults', 'supplyPeriods', 'requirements', 'rateCards', 'distanceEstimates']) {
+    assert(Array.isArray(seed[collection]) && seed[collection].length > 0, `runtime seed collection ${collection} must be non-empty`);
+  }
+  const streamIds = new Set(seed.streams.map((row) => row.id));
+  const siteIds = new Set(seed.sites.map((row) => row.id));
+  const reportIds = new Set(seed.qualityReports.map((row) => row.id));
+  const ids = new Set();
+  for (const [collection, rows] of Object.entries(seed)) {
+    if (!Array.isArray(rows)) continue;
+    for (const [index, row] of rows.entries()) {
+      if (!row.id) continue;
+      assert(!ids.has(row.id), `runtime seed duplicate id ${row.id}`);
+      ids.add(row.id);
+      const serialized = JSON.stringify(row).toLowerCase();
+      assert(!serialized.includes('iot') && !serialized.includes('sensor_device'), `runtime seed ${collection}[${index}] contains IoT integration`);
+    }
+  }
+  for (const [index, stream] of seed.streams.entries()) assert(siteIds.has(stream.siteId), `runtime streams[${index}].siteId is unknown`);
+  for (const [index, report] of seed.qualityReports.entries()) assert(streamIds.has(report.streamId), `runtime qualityReports[${index}].streamId is unknown`);
+  for (const [index, result] of seed.analyteResults.entries()) assert(reportIds.has(result.qualityReportId), `runtime analyteResults[${index}].qualityReportId is unknown`);
+  for (const [index, period] of seed.supplyPeriods.entries()) {
+    assert(streamIds.has(period.streamId), `runtime supplyPeriods[${index}].streamId is unknown`);
+    assert(Number.isInteger(period.listedPricePaisePerTonne) && period.listedPricePaisePerTonne >= 0, `runtime supplyPeriods[${index}] price must be integer paise`);
+    assert(typeof period.totalTonnes === 'string' && typeof period.reservedTonnes === 'string', `runtime supplyPeriods[${index}] quantities must be decimal strings`);
+  }
+  for (const [index, distance] of seed.distanceEstimates.entries()) {
+    assert(siteIds.has(distance.originSiteId) && siteIds.has(distance.destinationSiteId), `runtime distanceEstimates[${index}] references unknown site`);
+    assert(typeof distance.distanceKm === 'string', `runtime distanceEstimates[${index}].distanceKm must be a decimal string`);
+  }
+  return true;
+}
+
 async function validateAll({ quiet = false } = {}) {
   const jsonNames = expectedFiles.filter((name) => name.endsWith('.json') && name !== 'manifest.json');
   const jsonlNames = expectedFiles.filter((name) => name.endsWith('.jsonl'));
@@ -216,6 +273,7 @@ async function validateAll({ quiet = false } = {}) {
   for (const name of jsonNames) loaded[name.replace('.json', '')] = await loadJson(name);
   for (const name of jsonlNames) loaded[name.replace('.jsonl', '')] = await loadJsonl(name);
   const manifest = (await loadJson('manifest.json')).value;
+  const recordsSchema = JSON.parse(await readFile(path.join(repoRoot, 'contracts', 'v2', 'records.schema.json'), 'utf8'));
   assertCommon(manifest, 'manifest');
   assert(manifest.dataset === 'carbonbridge-v2-demo' && manifest.dataset_version === '2.0.0', 'manifest dataset identity is invalid');
   assert(manifest.fixture_seed === '26' && manifest.fixture_clock === fixtureClock, 'manifest seed or clock is invalid');
@@ -233,6 +291,18 @@ async function validateAll({ quiet = false } = {}) {
   data.knowledgeDocumentIds = new Set(data.knowledgeDocuments.map((row) => row.id));
   data.policyRuleIds = new Set(data.policyRules.map((row) => row.id));
   for (const [key, count] of Object.entries(expectedCounts)) assertCollection(get(key), key, count);
+  const schemaDefinitions = {
+    organizations: 'organization', users: 'user', process_profiles: 'process_profile', process_scenarios: 'process_scenario',
+    buyer_specification_examples: 'buyer_specification', treatment_pathways: 'treatment_pathway', knowledge_sources: 'knowledge_source',
+    knowledge_documents: 'knowledge_document', knowledge_chunks: 'knowledge_chunk', policy_rules: 'policy_rule', policy_scenarios: 'policy_scenario',
+    price_observations: 'price_observation', conversation_scenarios: 'conversation_scenario', assistant_eval_set: 'eval_case',
+  };
+  for (const [collection, definition] of Object.entries(schemaDefinitions)) {
+    for (const [index, value] of get(collection).entries()) assertSchema(recordsSchema, value, definition, `${collection}[${index}]`);
+  }
+  assertSchema(recordsSchema, data.marketplaceSnapshot, 'marketplace_snapshot', 'marketplace_snapshot');
+  for (const [index, listing] of data.marketplaceSnapshot.listings.entries()) assertSchema(recordsSchema, listing, 'listing', `marketplace_snapshot.listings[${index}]`);
+  assertSchema(recordsSchema, manifest, 'fixture_manifest', 'manifest');
   for (const [index, user] of data.users.entries()) assertRef(user.organization_id, data.organizationIds, `users[${index}].organization_id`);
   for (const [index, buyer] of data.buyerSpecifications.entries()) {
     assertRef(buyer.organization_id, data.organizationIds, `buyer_specification_examples[${index}].organization_id`);
@@ -253,7 +323,10 @@ async function validateAll({ quiet = false } = {}) {
     const expectedRecordCount = Array.isArray(loaded[key].value) ? loaded[key].value.length : 1;
     assert(manifest.files?.[key]?.records === expectedRecordCount, `manifest record count mismatch for ${name}`);
   }
-  const summary = { files: expectedFiles.length, records: Object.values(expectedCounts).reduce((a, b) => a + b, 0), eval_cases: data.evalCases.length, fixture_clock: fixtureClock };
+  const runtimeSeedChecked = await validateRuntimeSeed();
+  assert(manifest.runtime_seed_compatibility?.path === 'apps/api/data/demo/marketplace.json', 'manifest runtime seed path is invalid');
+  assert(manifest.runtime_seed_compatibility?.source_id === 'carbonbridge-demo-seed-v2', 'manifest runtime seed source id is invalid');
+  const summary = { files: expectedFiles.length, records: Object.values(expectedCounts).reduce((a, b) => a + b, 0), eval_cases: data.evalCases.length, fixture_clock: fixtureClock, runtime_seed_checked: runtimeSeedChecked };
   if (!quiet) console.log(`CarbonBridge V2 fixtures valid: ${summary.records} records across ${summary.files} files; ${summary.eval_cases} eval cases.`);
   return summary;
 }

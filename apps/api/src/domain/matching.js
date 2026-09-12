@@ -148,8 +148,8 @@ function evaluateCandidate(store, stream, requirement, now) {
   };
 }
 
-function runMatch(store, { requirementId, actorOrganizationId, now = new Date() }) {
-  const requirement = store.findOne('requirements', (item) => item.id === requirementId);
+function runMatch(store, { requirementId, actorOrganizationId, now = new Date(), requirementOverride = null, scenarioOf = null }) {
+  const requirement = requirementOverride || store.findOne('requirements', (item) => item.id === requirementId);
   if (!requirement) throw new DomainError('NOT_FOUND', `Requirement ${requirementId} was not found`, 404);
   if (actorOrganizationId && requirement.organizationId !== actorOrganizationId) {
     throw new DomainError('FORBIDDEN', 'Requirement is outside the active organization', 403);
@@ -172,6 +172,7 @@ function runMatch(store, { requirementId, actorOrganizationId, now = new Date() 
   const run = store.insert('matchRuns', {
     id: `match-run-${randomUUID()}`,
     requirementId,
+    scenarioOf,
     requesterOrganizationId: requirement.organizationId,
     requirementSnapshot: structuredClone(requirement),
     status: 'completed',

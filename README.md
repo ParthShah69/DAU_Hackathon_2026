@@ -22,10 +22,12 @@ npm run dev
 
 Open `http://127.0.0.1:4173`. The API listens on `http://127.0.0.1:8080` and uses clearly labeled fictional demo identity headers for local testing. The web preview is dependency-free so the experience can be reviewed on a clean machine; the retained React/TypeScript draft in `apps/web/src/App.tsx` documents the intended migration when a full frontend toolchain is available.
 
+The web shell is configured to use the same-origin `/api/v1` proxy by default. If the API is stopped, it falls back to safe seeded demo data and labels the workspace accordingly. You can switch the local actor with `?user=user-seller` or pass an explicit API base through `window.__CARBONBRIDGE_CONFIG__` before loading the module.
+
 ## What is included
 
-- `apps/web/`: process-first dashboard, discovery workspace, evidence vault, marketplace, buyer needs, request workflow, reports and persistent assistant panel.
-- `apps/api/`: Node prototype for process discovery, evidence-aware deterministic matching, delivered-cost estimates, typed assistant intents, action previews, confirmations, requests, reservations and SSE progress.
+- `apps/web/`: process-first dashboard, API-backed discovery, evidence-aware marketplace, buyer requirement form, request controls, deep links and assistant approval cards.
+- `apps/api/`: Node service for process discovery, evidence-aware deterministic matching, delivered-cost estimates, typed assistant intents, action previews, confirmations, manual request lifecycle, reservations and SSE progress.
 - `contracts/v2/`: JSON Schemas for records, intent envelopes, actions, tools, SSE events and capability parity.
 - `data/fixtures/v2/`: 222 deterministic records across 16 files, including six process profiles, twelve process scenarios, eight buyer specifications, source documents/chunks, policy examples, market observations and sixty assistant evaluation cases.
 - `scripts/`: fixture generation/validation, dry-run seed planning and platform checks.

@@ -48,6 +48,11 @@ class Store {
         this[collection].push(...clone(seed[collection]));
       }
     }
+    for (const collection of ['streams', 'supplyPeriods', 'requirements', 'qualityReports']) {
+      for (const record of this[collection]) {
+        if (record.version === undefined) record.version = 1;
+      }
+    }
     this.seedSource = clone(seed.source || { kind: 'unknown' });
     return this.snapshot();
   }

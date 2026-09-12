@@ -57,6 +57,24 @@ const OUTPUT_CATALOG = [
     uses: ['water recovery research', 'industrial reuse screening'],
     evidence: ['flow volume and chemistry', 'contaminants', 'treatment boundary', 'discharge or reuse authorization'],
     caution: 'Liquid residues need a separate safety, chemistry and authorization workflow before any market action.'
+  },
+  {
+    key: 'textile_offcuts',
+    label: 'Reusable textile offcuts opportunity',
+    material: 'textile_offcuts',
+    keywords: ['textile offcut', 'fabric offcut', 'fabric scrap', 'cutting waste', 'garment scrap', 'cotton scrap', 'sewing waste'],
+    uses: ['fiber recovery', 'insulation and felt products', 'industrial wiping and reuse'],
+    evidence: ['fiber composition and blend percentage', 'mass by collection period', 'contamination and bale condition', 'ownership and storage location'],
+    caution: 'Textile residues need composition and contamination evidence before a buyer can rely on the material.'
+  },
+  {
+    key: 'wood_residue',
+    label: 'Wood residue or sawdust opportunity',
+    material: 'wood_residue',
+    keywords: ['sawdust', 'wood chips', 'wood waste', 'sawmill residue', 'bark residue'],
+    uses: ['panel and briquette feedstock', 'biochar research', 'bedding or absorbent material'],
+    evidence: ['moisture and particle size', 'wood species and treatment status', 'mass and storage', 'safe handling classification'],
+    caution: 'Wood residue must be checked for coatings, preservatives and moisture before any reuse claim.'
   }
 ];
 

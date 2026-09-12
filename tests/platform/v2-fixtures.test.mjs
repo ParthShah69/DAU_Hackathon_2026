@@ -4,6 +4,7 @@ import test from 'node:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { uuidv5 } from '../../scripts/generate-v2-fixtures.mjs';
+import { validateSchemaInstance } from '../../scripts/json-schema-lite.mjs';
 import { validateAll } from '../../scripts/validate-v2-fixtures.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -91,4 +92,25 @@ test('public JSON schemas and capability example are parseable', async () => {
   const capabilityExample = JSON.parse(await readFile(path.join(schemaDir, 'capability-manifest.json.example'), 'utf8'));
   assert.equal(capabilityExample.schema_version, '2.0');
   assert.ok(capabilityExample.capabilities.every((capability) => capability.manual_fallback === true));
+});
+
+test('the dependency-free validator rejects contract violations', async () => {
+  const recordsSchema = JSON.parse(await readFile(path.join(repoRoot, 'contracts', 'v2', 'records.schema.json'), 'utf8'));
+  const profiles = await json('process_profiles.json');
+  const invalid = structuredClone(profiles[0]);
+  delete invalid.title;
+  invalid.schema_version = '1.0';
+  const errors = validateSchemaInstance(recordsSchema.$defs.process_profile, invalid, recordsSchema);
+  assert.ok(errors.some((error) => error.includes('schema_version')));
+  assert.ok(errors.some((error) => error.includes('title')));
+
+  const actionSchema = JSON.parse(await readFile(path.join(repoRoot, 'contracts', 'v2', 'action-proposal.schema.json'), 'utf8'));
+  const action = {
+    schema_version: '2.0', id: 'not-a-uuid', workflow_id: 'not-a-uuid', action_type: 'publish_listing', risk_class: 'externally_visible',
+    target: { entity_type: 'listing', entity_id: 'listing', organization_id: 'not-a-uuid' }, diff: {}, expected_version: 1,
+    expires_at: '2026-09-12T00:00:00Z', requires_explicit_confirmation: false, status: 'prepared',
+  };
+  const actionErrors = validateSchemaInstance(actionSchema, action, actionSchema);
+  assert.ok(actionErrors.some((error) => error.includes('requires_explicit_confirmation')));
+  assert.ok(actionErrors.some((error) => error.includes('must be a UUID')));
 });

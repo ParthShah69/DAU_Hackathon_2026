@@ -20,4 +20,10 @@ if (!js.includes("addEventListener('click'")) throw new Error('main.js has no in
 if (!js.includes('Describe my process')) throw new Error('process-first entry point is missing')
 if (!js.includes('Evidence needed')) throw new Error('evidence state is missing')
 if (!js.includes('isDemoMode')) throw new Error('demo/live runtime label is missing')
+for (const marker of ['loadWorkspace', 'sendConversationMessage', 'discoverProcess', 'approveAction', 'hydrate()', 'analyzeProcess()']) {
+  if (!js.includes(marker)) throw new Error(`main.js is missing live workflow integration: ${marker}`)
+}
+if (!html.includes('/src/styles.css')) throw new Error('index.html must load the active stylesheet')
+if (!html.includes('apiBaseUrl')) throw new Error('index.html must configure the same-origin API proxy')
+if (/<(?:div|span|button|section|article|aside|svg|path)[^>]*\s\/>/.test(js)) throw new Error('main.js contains invalid self-closing non-void HTML')
 console.log('CarbonBridge web checks passed')

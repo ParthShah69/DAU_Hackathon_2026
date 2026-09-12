@@ -7,6 +7,9 @@ const { runMatch, getMatchRun } = require('./domain/matching');
 const { createRequirement, listRequirements, getRequirement } = require('./domain/requirements');
 const { listDrafts, getDraftDetail, patchListingDraft } = require('./domain/listing-drafts');
 const { createConversation, getConversationTranscript, orchestrateMessage, executeAction } = require('./domain/assistant');
+const { createListing, getListing, patchListing, publishListing, archiveListing, listListings } = require('./domain/listings');
+const { patchRequirement } = require('./domain/requirements');
+const { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers } = require('./domain/requests');
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -68,6 +71,9 @@ function listingSummary(store, stream) {
     physicalForm: stream.physicalForm,
     co2Origin: stream.co2Origin,
     state: stream.state,
+    version: Number(stream.version || 1),
+    createdAt: stream.createdAt || null,
+    updatedAt: stream.updatedAt || null,
     location: { city: site?.city || null },
     supply: period ? { id: period.id, start: period.start, end: period.end, totalTonnes: period.totalTonnes, reservedTonnes: period.reservedTonnes, remainingTonnes: String(Number(period.totalTonnes) - Number(period.reservedTonnes)), minimumOrderTonnes: period.minimumOrderTonnes, listedPricePaisePerTonne: period.listedPricePaisePerTonne, currency: period.currency } : null,
     quality: quality ? { id: quality.id, purityMolPct: quality.purityMolPct, basis: quality.basis, sampledAt: quality.sampledAt, expiresAt: quality.expiresAt, evidenceStatus: quality.evidenceStatus } : null,
@@ -102,7 +108,12 @@ function publicCapabilities() {
   };
 }
 
-function createApp({ store = new Store() } = {}) {
+function createApp({ store = new Store(), persistence = null } = {}) {
+  store = persistence?.store || store;
+  const persistenceStatus = {
+    live: () => (typeof persistence?.live === 'function' ? persistence.live() : true),
+    ready: () => (typeof persistence?.ready === 'function' ? persistence.ready() : true)
+  };
   return async function handle(request, response) {
     const requestId = request.headers['x-request-id'] || randomUUID();
     try {
@@ -113,8 +124,16 @@ function createApp({ store = new Store() } = {}) {
       }
       const url = new URL(request.url, 'http://localhost');
       const path = url.pathname.replace(/\/$/, '') || '/';
-      if (request.method === 'GET' && (path === '/healthz' || path === '/api/v1/health')) {
+      if (request.method === 'GET' && (path === '/healthz' || path === '/api/v1/health' || path === '/health/live' || path === '/api/v1/health/live')) {
         jsonResponse(response, 200, { status: 'ok', service: 'carbonbridge-api', mode: 'prototype', seed: store.seedSource }, requestId);
+        return;
+      }
+      if (request.method === 'GET' && (path === '/health/ready' || path === '/api/v1/health/ready')) {
+        if (!persistenceStatus.ready()) {
+          jsonResponse(response, 503, { status: 'not_ready', service: 'carbonbridge-api' }, requestId);
+          return;
+        }
+        jsonResponse(response, 200, { status: 'ready', service: 'carbonbridge-api', persistence: 'available' }, requestId);
         return;
       }
 
@@ -127,24 +146,92 @@ function createApp({ store = new Store() } = {}) {
 
       const actor = actorFromRequest(store, request);
 
+      if (request.method === 'GET' && path === '/api/v1/me') {
+        jsonResponse(response, 200, {
+          user: { id: actor.user.id, displayName: actor.user.displayName, externalSubject: actor.user.externalSubject },
+          currentOrganization: { id: actor.organization.id, name: actor.organization.name, capabilities: actor.organization.capabilities, status: actor.organization.status },
+          memberships: store.findMany('memberships', (membership) => membership.userId === actor.userId).map((membership) => ({ organizationId: membership.organizationId, roles: membership.roles })),
+          capabilities: actor.roles
+        }, requestId);
+        return;
+      }
+
       if (request.method === 'GET' && path === '/api/v1/assistant/capabilities') {
         jsonResponse(response, 200, publicCapabilities(), requestId);
         return;
       }
 
-      if (request.method === 'GET' && path === '/api/v1/marketplace/listings') {
+      if (request.method === 'GET' && path === '/api/v1/dashboard') {
+        const ownedStreams = store.findMany('streams', (stream) => stream.organizationId === actor.organizationId);
+        const ownedRequirements = store.findMany('requirements', (requirement) => requirement.organizationId === actor.organizationId);
+        const requests = store.findMany('supplyRequests', (item) => item.buyerOrganizationId === actor.organizationId || item.supplierOrganizationId === actor.organizationId);
+        const supplyPeriods = store.findMany('supplyPeriods', (period) => ownedStreams.some((stream) => stream.id === period.streamId));
+        jsonResponse(response, 200, {
+          organizationId: actor.organizationId,
+          counts: {
+            listings: ownedStreams.length,
+            publishedListings: ownedStreams.filter((stream) => stream.state === 'published').length,
+            listingDrafts: ownedStreams.filter((stream) => stream.state === 'draft').length + store.findMany('listingDrafts', (draft) => draft.organizationId === actor.organizationId).length,
+            requirements: ownedRequirements.length,
+            requests: requests.length,
+            pendingRequests: requests.filter((item) => item.status === 'pending_supplier').length,
+            activeReservations: store.findMany('reservations', (reservation) => reservation.status === 'active' && supplyPeriods.some((period) => period.id === reservation.supplyPeriodId)).length
+          },
+          availability: { totalTonnes: supplyPeriods.reduce((sum, period) => sum + Number(period.totalTonnes || 0), 0), reservedTonnes: supplyPeriods.reduce((sum, period) => sum + Number(period.reservedTonnes || 0), 0) },
+          source: store.seedSource
+        }, requestId);
+        return;
+      }
+
+      if (request.method === 'GET' && (path === '/api/v1/marketplace/listings' || path === '/api/v1/listings')) {
         const state = url.searchParams.get('state') || 'published';
         const sourceIndustry = url.searchParams.get('sourceIndustry');
-        const listings = store.findMany('streams', (stream) => stream.state === state && (!sourceIndustry || stream.sourceIndustry === sourceIndustry)).map((stream) => listingSummary(store, stream));
+        const listings = listListings(store, { actorOrganizationId: actor.organizationId, state, sourceIndustry }).map((stream) => listingSummary(store, stream));
         jsonResponse(response, 200, { items: listings, count: listings.length, asOf: store.now(), source: store.seedSource }, requestId);
+        return;
+      }
+
+      if (request.method === 'POST' && path === '/api/v1/listings') {
+        requireRole(actor, ['org_admin', 'supplier_editor']);
+        const body = await readJson(request);
+        const stream = createListing(store, { actorOrganizationId: actor.organizationId, payload: body, now: new Date() });
+        jsonResponse(response, 201, listingDetail(store, stream), requestId);
         return;
       }
 
       const listingMatch = path.match(/^\/api\/v1\/listings\/([^/]+)$/);
       if (request.method === 'GET' && listingMatch) {
-        const stream = store.findOne('streams', (item) => item.id === listingMatch[1]);
-        if (!stream || stream.state !== 'published') throw new DomainError('NOT_FOUND', 'Listing was not found', 404);
+        const stream = getListing(store, listingMatch[1], actor.organizationId);
         jsonResponse(response, 200, listingDetail(store, stream), requestId);
+        return;
+      }
+      if (request.method === 'PATCH' && listingMatch) {
+        requireRole(actor, ['org_admin', 'supplier_editor']);
+        const body = await readJson(request);
+        const stream = patchListing(store, { listingId: listingMatch[1], actorOrganizationId: actor.organizationId, payload: body, now: new Date() });
+        jsonResponse(response, 200, listingDetail(store, stream), requestId);
+        return;
+      }
+      const listingPublishMatch = path.match(/^\/api\/v1\/listings\/([^/]+)\/publish$/);
+      if (request.method === 'POST' && listingPublishMatch) {
+        requireRole(actor, ['org_admin', 'supplier_editor']);
+        const body = await readJson(request);
+        const stream = publishListing(store, { listingId: listingPublishMatch[1], actorOrganizationId: actor.organizationId, expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, now: new Date() });
+        jsonResponse(response, 200, listingDetail(store, stream), requestId);
+        return;
+      }
+      const listingArchiveMatch = path.match(/^\/api\/v1\/listings\/([^/]+)\/archive$/);
+      if (request.method === 'POST' && listingArchiveMatch) {
+        requireRole(actor, ['org_admin', 'supplier_editor']);
+        const body = await readJson(request);
+        const stream = archiveListing(store, { listingId: listingArchiveMatch[1], actorOrganizationId: actor.organizationId, expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, now: new Date() });
+        jsonResponse(response, 200, listingDetail(store, stream), requestId);
+        return;
+      }
+      const listingAlternativesMatch = path.match(/^\/api\/v1\/listings\/([^/]+)\/alternative-buyers$/);
+      if (request.method === 'POST' && listingAlternativesMatch) {
+        requireRole(actor, ['org_admin', 'supplier_editor', 'viewer']);
+        jsonResponse(response, 200, alternativeBuyers(store, { listingId: listingAlternativesMatch[1], actorOrganizationId: actor.organizationId, now: new Date() }), requestId);
         return;
       }
 
@@ -172,6 +259,16 @@ function createApp({ store = new Store() } = {}) {
         return;
       }
 
+      if (request.method === 'GET' && path === '/api/v1/processes') {
+        requireRole(actor, ['org_admin', 'supplier_editor', 'buyer_editor', 'viewer']);
+        const processes = store.findMany('processes', (item) => item.organizationId === actor.organizationId).map((process) => ({
+          ...structuredClone(process),
+          candidates: store.findMany('discoveryCandidates', (candidate) => candidate.processId === process.id)
+        }));
+        jsonResponse(response, 200, { items: processes }, requestId);
+        return;
+      }
+
       const processMatch = path.match(/^\/api\/v1\/processes\/([^/]+)$/);
       if (request.method === 'GET' && processMatch) {
         jsonResponse(response, 200, getProcess(store, processMatch[1], actor.organizationId), requestId);
@@ -194,16 +291,56 @@ function createApp({ store = new Store() } = {}) {
         jsonResponse(response, 200, getRequirement(store, requirementMatch[1], actor.organizationId), requestId);
         return;
       }
-
-      if (request.method === 'POST' && path === '/api/v1/matches/run') {
-        requireRole(actor, ['org_admin', 'buyer_editor', 'viewer']);
+      if (request.method === 'PATCH' && requirementMatch) {
+        requireRole(actor, ['org_admin', 'buyer_editor']);
         const body = await readJson(request);
-        jsonResponse(response, 200, runMatch(store, { requirementId: body.requirementId, actorOrganizationId: actor.organizationId, now: new Date() }), requestId);
+        jsonResponse(response, 200, patchRequirement(store, { requirementId: requirementMatch[1], actorOrganizationId: actor.organizationId, payload: body, now: new Date() }), requestId);
         return;
       }
-      const matchRunMatch = path.match(/^\/api\/v1\/matches\/([^/]+)$/);
+
+      if (request.method === 'POST' && (path === '/api/v1/matches/run' || path === '/api/v1/match-runs')) {
+        requireRole(actor, ['org_admin', 'buyer_editor', 'viewer']);
+        const body = await readJson(request);
+        const requestedRequirementId = body.requirementId ?? body.requirement_id;
+        const currentRequirement = store.findOne('requirements', (item) => item.id === requestedRequirementId && item.organizationId === actor.organizationId);
+        if (body.expectedRequirementVersion !== undefined || body.expected_requirement_version !== undefined) {
+          const expected = body.expectedRequirementVersion ?? body.expected_requirement_version;
+          if (!currentRequirement || Number(expected) !== Number(currentRequirement.version || 1)) throw new DomainError('VERSION_CONFLICT', 'Requirement changed; refresh it before matching', 409);
+        }
+        jsonResponse(response, 200, runMatch(store, { requirementId: requestedRequirementId, actorOrganizationId: actor.organizationId, now: new Date() }), requestId);
+        return;
+      }
+      const matchRunMatch = path.match(/^\/api\/v1\/(?:matches|match-runs)\/([^/]+)$/);
       if (request.method === 'GET' && matchRunMatch) {
         jsonResponse(response, 200, getMatchRun(store, matchRunMatch[1], actor.organizationId), requestId);
+        return;
+      }
+      const scenarioMatch = path.match(/^\/api\/v1\/(?:matches|match-runs)\/([^/]+)\/scenarios$/);
+      if (request.method === 'POST' && scenarioMatch) {
+        requireRole(actor, ['org_admin', 'buyer_editor', 'viewer']);
+        const body = await readJson(request);
+        const original = store.findOne('matchRuns', (item) => item.id === scenarioMatch[1] && item.requesterOrganizationId === actor.organizationId);
+        if (!original) throw new DomainError('NOT_FOUND', 'Match run was not found', 404);
+        const requirement = store.findOne('requirements', (item) => item.id === original.requirementId && item.organizationId === actor.organizationId);
+        if (!requirement) throw new DomainError('NOT_FOUND', 'Requirement was not found', 404);
+        const overrides = body.overrides || body;
+        const allowed = ['quantityTonnes', 'quantity_t', 'minimumPurityMolPct', 'minimum_purity', 'maxDistanceKm', 'max_distance_km', 'maxDeliveredPaisePerTonne', 'max_delivered_paise_per_tonne', 'acceptableForms', 'acceptable_forms'];
+        const scenarioRequirement = { ...structuredClone(requirement) };
+        for (const key of allowed) {
+          if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+            const canonical = { quantity_t: 'quantityTonnes', minimum_purity: 'minimumPurityMolPct', max_distance_km: 'maxDistanceKm', max_delivered_paise_per_tonne: 'maxDeliveredPaisePerTonne', acceptable_forms: 'acceptableForms' }[key] || key;
+            scenarioRequirement[canonical] = overrides[key];
+          }
+        }
+        const result = runMatch(store, { requirementId: requirement.id, actorOrganizationId: actor.organizationId, requirementOverride: scenarioRequirement, scenarioOf: original.id, now: new Date() });
+        result.run.scenario = true;
+        result.run.scenarioOf = original.id;
+        jsonResponse(response, 201, result, requestId);
+        return;
+      }
+      const receiptMatch = path.match(/^\/api\/v1\/(?:matches|match-runs)\/([^/]+)\/receipt$/);
+      if (request.method === 'GET' && receiptMatch) {
+        jsonResponse(response, 200, decisionReceipt(store, { runId: receiptMatch[1], actorOrganizationId: actor.organizationId }), requestId);
         return;
       }
 
@@ -261,15 +398,43 @@ function createApp({ store = new Store() } = {}) {
       }
 
       if (request.method === 'GET' && path === '/api/v1/requests') {
-        const requests = store.findMany('supplyRequests', (item) => item.buyerOrganizationId === actor.organizationId || item.supplierOrganizationId === actor.organizationId);
+        const requests = listRequests(store, actor.organizationId);
         jsonResponse(response, 200, { items: requests }, requestId);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/requests') {
+        requireRole(actor, ['org_admin', 'buyer_editor']);
+        const body = await readJson(request);
+        const responseData = createSupplyRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, payload: body, idempotencyKey: request.headers['idempotency-key'], now: new Date() });
+        jsonResponse(response, 201, responseData, requestId);
         return;
       }
       const requestMatch = path.match(/^\/api\/v1\/requests\/([^/]+)$/);
       if (request.method === 'GET' && requestMatch) {
-        const supplyRequest = store.findOne('supplyRequests', (item) => item.id === requestMatch[1] && (item.buyerOrganizationId === actor.organizationId || item.supplierOrganizationId === actor.organizationId));
-        if (!supplyRequest) throw new DomainError('NOT_FOUND', 'Request was not found', 404);
+        const supplyRequest = getRequest(store, requestMatch[1], actor.organizationId);
         jsonResponse(response, 200, { ...supplyRequest, events: store.findMany('requestEvents', (item) => item.requestId === supplyRequest.id), reservation: supplyRequest.reservationId ? store.findOne('reservations', (item) => item.id === supplyRequest.reservationId) : null }, requestId);
+        return;
+      }
+      const requestAcceptMatch = path.match(/^\/api\/v1\/requests\/([^/]+)\/accept$/);
+      if (request.method === 'POST' && requestAcceptMatch) {
+        requireRole(actor, ['org_admin', 'supplier_editor']);
+        const body = await readJson(request);
+        const result = acceptRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, requestId: requestAcceptMatch[1], expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, expectedSupplyVersion: body.supplyVersion ?? body.expectedSupplyVersion ?? body.expected_supply_version, idempotencyKey: request.headers['idempotency-key'], now: new Date() });
+        jsonResponse(response, 200, result, requestId);
+        return;
+      }
+      const requestDeclineMatch = path.match(/^\/api\/v1\/requests\/([^/]+)\/decline$/);
+      if (request.method === 'POST' && requestDeclineMatch) {
+        requireRole(actor, ['org_admin', 'supplier_editor']);
+        const body = await readJson(request);
+        jsonResponse(response, 200, transitionRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, requestId: requestDeclineMatch[1], expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, idempotencyKey: request.headers['idempotency-key'], transition: 'decline', now: new Date() }), requestId);
+        return;
+      }
+      const requestCancelMatch = path.match(/^\/api\/v1\/requests\/([^/]+)\/cancel$/);
+      if (request.method === 'POST' && requestCancelMatch) {
+        requireRole(actor, ['org_admin', 'buyer_editor']);
+        const body = await readJson(request);
+        jsonResponse(response, 200, transitionRequest(store, { actorUserId: actor.userId, actorOrganizationId: actor.organizationId, requestId: requestCancelMatch[1], expectedVersion: body.version ?? body.expectedVersion ?? body.expected_version, idempotencyKey: request.headers['idempotency-key'], transition: 'cancel', now: new Date() }), requestId);
         return;
       }
       if (request.method === 'GET' && path === '/api/v1/activity') {

@@ -50,15 +50,21 @@ Send that to `POST /api/v1/processes/discover`. The response contains candidate 
 | Endpoint | Purpose |
 |---|---|
 | `GET /healthz` | Health and seed provenance |
+| `GET /api/v1/me` | Current demo identity and organization capabilities |
+| `GET /api/v1/health/live` / `/api/v1/health/ready` | Liveness and readiness probes |
 | `POST /api/v1/demo/seed` | Reset fictional records in local non-production mode |
 | `GET /api/v1/marketplace/listings` | Public-safe listing summaries |
+| `POST/PATCH /api/v1/listings` | Create and edit private listings with version checks |
+| `POST /api/v1/listings/{id}/publish` | Publish only when bounded quantity and unexpired quality evidence exist |
 | `POST /api/v1/processes/discover` | Process extraction and output-opportunity discovery |
-| `POST /api/v1/requirements` | Manual requirement creation |
+| `POST/PATCH /api/v1/requirements` | Manual requirement creation and editing |
 | `POST /api/v1/matches/run` | Deterministic hard checks, economics and ranking |
+| `GET /api/v1/matches/{id}/receipt` | Immutable decision receipt |
 | `POST /api/v1/conversations/{id}/messages` | Intent routing and typed assistant cards |
 | `GET /api/v1/actions/{id}` | Inspect an exact pending action |
 | `POST /api/v1/actions/{id}/approve` | Execute the exact action after authorization |
-| `GET /api/v1/requests` | Buyer or supplier request timeline |
+| `GET/POST /api/v1/requests` | Buyer or supplier request timeline and manual submission |
+| `POST /api/v1/requests/{id}/accept|decline|cancel` | Versioned manual request transitions |
 
 ## Seed data contract
 

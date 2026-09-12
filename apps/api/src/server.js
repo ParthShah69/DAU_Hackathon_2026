@@ -1,10 +1,11 @@
 const http = require('node:http');
-const { Store } = require('./infra/store');
+const { MemoryPersistence } = require('./infra/persistence');
 const { createApp } = require('./app');
 
 const port = Number(process.env.PORT || 8080);
-const store = new Store();
-const server = http.createServer(createApp({ store }));
+const persistence = new MemoryPersistence();
+const store = persistence.store;
+const server = http.createServer(createApp({ store, persistence }));
 
 server.listen(port, () => {
   console.log(`CarbonBridge API prototype listening on http://localhost:${port}`);

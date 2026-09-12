@@ -3,6 +3,7 @@ const { DomainError, requireValue } = require('./errors');
 const { discoverProcess } = require('./process-discovery');
 const { runMatch, getMatchRun } = require('./matching');
 const { createRequirement } = require('./requirements');
+const { createSupplyRequest, acceptRequest } = require('./requests');
 
 const ASSISTANT_VERSION = 'carbonbridge-orchestrator-demo-v1';
 const MAX_MESSAGE_LENGTH = 12000;
@@ -194,6 +195,10 @@ function appendAudit(store, { actorUserId, organizationId, action, event, before
 
 function executeAction(store, action, { actorUserId, actorOrganizationId }) {
   if (action.actorUserId !== actorUserId || action.organizationId !== actorOrganizationId) throw new DomainError('FORBIDDEN', 'Only the action creator can approve this action', 403);
+  if (hashPayload(action.payload) !== action.payloadHash) {
+    store.replace('actions', action.id, { status: 'failed', error: { code: 'ACTION_TAMPERED', message: 'Action payload no longer matches its approval hash' }, version: Number(action.version || 1) + 1 });
+    throw new DomainError('ACTION_TAMPERED', 'This action preview no longer matches the approved payload; prepare it again', 409);
+  }
   if (action.status === 'succeeded') return structuredClone(action);
   if (action.status !== 'awaiting_approval') throw new DomainError('ACTION_NOT_APPROVABLE', `Action is ${action.status}`);
   if (new Date(action.expiresAt) <= new Date()) {
@@ -227,55 +232,28 @@ function executeAction(store, action, { actorUserId, actorOrganizationId }) {
         version: 1
       });
     } else if (action.operation === 'submit_supply_request') {
-      const requirement = store.findOne('requirements', (item) => item.id === action.payload.requirementId && item.organizationId === actorOrganizationId);
-      if (!requirement) throw new DomainError('FORBIDDEN', 'Requirement is outside the active organization', 403);
-      const current = runMatch(store, { requirementId: requirement.id, actorOrganizationId, now: new Date() });
-      const selectedResult = current.results.find((item) => item.streamId === action.payload.streamId);
-      if (!selectedResult || selectedResult.status !== 'compatible') throw new DomainError('MATCH_STALE', 'The selected option is no longer compatible; refresh matches');
+      const selectedResult = store.findOne('matchResults', (item) => item.id === action.payload.matchResultId);
+      if (!selectedResult) throw new DomainError('MATCH_STALE', 'The saved match result is no longer available; refresh matches', 409);
       const period = store.findOne('supplyPeriods', (item) => item.id === selectedResult.supplyPeriodId);
-      const request = store.insert('supplyRequests', {
-        id: `request-${randomUUID()}`,
-        buyerOrganizationId: actorOrganizationId,
-        supplierOrganizationId: selectedResult.supplierOrganizationId,
-        requirementId: requirement.id,
-        streamId: selectedResult.streamId,
-        supplyPeriodId: selectedResult.supplyPeriodId,
-        matchResultId: selectedResult.id,
-        quantityTonnes: requirement.quantityTonnes,
-        termsSnapshot: { economics: selectedResult.economics, requirement: structuredClone(requirement) },
-        status: 'pending_supplier',
-        version: 1,
-        createdAt: store.now(),
-        updatedAt: store.now()
-      });
-      store.insert('requestEvents', {
-        id: `request-event-${randomUUID()}`,
-        requestId: request.id,
+      result = createSupplyRequest(store, {
         actorUserId,
-        event: 'submitted',
-        createdAt: store.now()
+        actorOrganizationId,
+        payload: { ...action.payload, expectedSupplyVersion: action.payload.expectedSupplyVersion ?? period?.version ?? 1 },
+        idempotencyKey: `assistant-action:${action.id}`,
+        now: new Date()
       });
-      result = request;
     } else if (action.operation === 'accept_supply_request') {
-      const request = store.findOne('supplyRequests', (item) => item.id === action.payload.requestId && item.supplierOrganizationId === actorOrganizationId);
-      if (!request) throw new DomainError('FORBIDDEN', 'Request is outside the active supplier organization', 403);
-      if (request.status !== 'pending_supplier') throw new DomainError('REQUEST_NOT_PENDING', `Request is ${request.status}`);
-      const period = store.findOne('supplyPeriods', (item) => item.id === request.supplyPeriodId);
-      if (!period) throw new DomainError('NOT_FOUND', 'Supply period is no longer available', 404);
-      const remaining = Number(period.totalTonnes) - Number(period.reservedTonnes);
-      if (remaining < Number(request.quantityTonnes)) throw new DomainError('INSUFFICIENT_AVAILABILITY', 'The supply period no longer has enough available quantity');
-      const reservation = store.insert('reservations', {
-        id: `reservation-${randomUUID()}`,
+      const request = store.findOne('supplyRequests', (item) => item.id === action.payload.requestId);
+      if (!request) throw new DomainError('NOT_FOUND', 'Supply request is no longer available', 404);
+      result = acceptRequest(store, {
+        actorUserId,
+        actorOrganizationId,
         requestId: request.id,
-        supplyPeriodId: period.id,
-        quantityTonnes: request.quantityTonnes,
-        status: 'active',
-        createdAt: store.now()
+        expectedVersion: action.payload.expectedVersion ?? request.version,
+        expectedSupplyVersion: action.payload.expectedSupplyVersion ?? request.expectedSupplyVersion,
+        idempotencyKey: `assistant-action:${action.id}`,
+        now: new Date()
       });
-      store.replace('supplyPeriods', period.id, { reservedTonnes: String(Number(period.reservedTonnes) + Number(request.quantityTonnes)) });
-      store.replace('supplyRequests', request.id, { status: 'accepted', reservationId: reservation.id, version: request.version + 1, updatedAt: store.now() });
-      store.insert('requestEvents', { id: `request-event-${randomUUID()}`, requestId: request.id, actorUserId, event: 'accepted', createdAt: store.now() });
-      result = { requestId: request.id, reservation };
     } else {
       throw new DomainError('UNSUPPORTED_ACTION', `Operation ${action.operation} is not supported by this prototype`);
     }
@@ -425,7 +403,22 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
           conversation.context.activeRequirementId = requirement.id;
           conversation.context.activeMatchRunId = match.run.id;
           conversation.context.activeMatchResultIds = match.results.map((item) => item.id);
-          const action = createAction(store, { conversation, actorUserId, operation: 'submit_supply_request', payload: { requirementId: requirement.id, streamId: result.streamId, matchResultId: result.id }, summary: `Submit a ${requirement.quantityTonnes} tonne request to ${result.streamName}`, now });
+          const action = createAction(store, {
+            conversation,
+            actorUserId,
+            operation: 'submit_supply_request',
+            payload: {
+              requirementId: requirement.id,
+              streamId: result.streamId,
+              matchResultId: result.id,
+              quantityTonnes: requirement.quantityTonnes,
+              expectedRequirementVersion: Number(requirement.version || 1),
+              expectedSupplyVersion: Number(store.findOne('supplyPeriods', (period) => period.id === result.supplyPeriodId)?.version || 1),
+              expectedDeliveredPaisePerTonne: result.economics?.deliveredPaisePerTonne ?? null
+            },
+            summary: `Submit a ${requirement.quantityTonnes} tonne request to ${result.streamName}`,
+            now
+          });
           state = 'waiting_for_approval';
           response = buildResponse('I prepared the exact supply request. Review the supplier, period, quantity and delivered estimate, then confirm.', [actionCard(action), { type: 'decision_receipt_preview', requirement, selectedOption: result }], { waitingForApproval: true });
         }
@@ -434,7 +427,16 @@ function orchestrateMessage(store, { conversationId, actorUserId, actorOrganizat
       const request = [...store.supplyRequests].reverse().find((item) => item.id === conversation.context.activeRequestId || content.includes(item.id));
       if (!request) response = buildResponse('I could not find a request to manage in this conversation.', [], { needsInput: true });
       else if (/\baccept/.test(content.toLowerCase())) {
-        const action = createAction(store, { conversation, actorUserId, operation: 'accept_supply_request', riskClass: 'commercial_privileged', payload: { requestId: request.id }, summary: `Accept request ${request.id} and reserve ${request.quantityTonnes} tonnes`, now });
+        const period = store.findOne('supplyPeriods', (item) => item.id === request.supplyPeriodId);
+        const action = createAction(store, {
+          conversation,
+          actorUserId,
+          operation: 'accept_supply_request',
+          riskClass: 'commercial_privileged',
+          payload: { requestId: request.id, expectedVersion: Number(request.version || 1), expectedSupplyVersion: Number(period?.version || 1) },
+          summary: `Accept request ${request.id} and reserve ${request.quantityTonnes} tonnes`,
+          now
+        });
         state = 'waiting_for_approval';
         response = buildResponse('This reserves supply for the request. Review the reservation preview and confirm only if the terms are correct.', [actionCard(action)], { waitingForApproval: true });
       } else response = buildResponse(`Request ${request.id} is currently ${request.status}.`, [{ type: 'request_status', request }]);

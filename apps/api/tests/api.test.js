@@ -17,10 +17,11 @@ test.after(async () => {
   await new Promise((resolve) => server.close(resolve));
 });
 
-async function request(path, { method = 'GET', body, user = 'user-buyer', organization, expectedStatus } = {}) {
+async function request(path, { method = 'GET', body, user = 'user-buyer', organization, expectedStatus, headers: extraHeaders = {} } = {}) {
   const headers = { 'x-demo-user': user };
   if (organization) headers['x-demo-organization'] = organization;
   if (body !== undefined) headers['content-type'] = 'application/json';
+  Object.assign(headers, extraHeaders);
   const response = await fetch(`${baseUrl}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const payload = await response.json();
   if (expectedStatus !== undefined) assert.equal(response.status, expectedStatus, JSON.stringify(payload));
@@ -35,6 +36,40 @@ test('health and seed endpoints expose a clearly fictional demo', async () => {
   const seeded = await request('/api/v1/demo/seed', { method: 'POST', user: 'user-buyer' });
   assert.equal(seeded.status, 'seeded');
   assert.equal(seeded.source.kind, 'synthetic_demo');
+});
+
+test('core identity, listing lifecycle and readiness routes enforce ownership and versions', async () => {
+  const me = await request('/api/v1/me');
+  assert.equal(me.currentOrganization.id, 'org-greenbuild');
+  assert.ok(me.capabilities.includes('buyer_editor'));
+  const live = await request('/api/v1/health/live');
+  const ready = await request('/api/v1/health/ready');
+  assert.equal(live.status, 'ok');
+  assert.equal(ready.status, 'ready');
+
+  const created = await request('/api/v1/listings', {
+    method: 'POST',
+    user: 'user-seller',
+    body: {
+      name: 'Manual CO2 draft',
+      siteId: 'site-d',
+      sourceIndustry: 'cement',
+      physicalForm: 'gas',
+      co2Origin: 'point_source',
+      quality: { purityMolPct: 97, basis: 'dry', evidenceStatus: 'self_reported', analytes: [] },
+      supplyPeriods: [{ start: '2026-11-01', end: '2026-11-30', totalTonnes: 70, minimumOrderTonnes: 10, listedPricePaisePerTonne: 200000, currency: 'INR' }]
+    }
+  });
+  assert.equal(created.state, 'draft');
+  const stale = await request(`/api/v1/listings/${created.id}`, { method: 'PATCH', user: 'user-seller', body: { version: 99, name: 'Stale edit' }, expectedStatus: 409 });
+  assert.equal(stale.error.code, 'VERSION_CONFLICT');
+  const patched = await request(`/api/v1/listings/${created.id}`, { method: 'PATCH', user: 'user-seller', body: { version: created.version, name: 'Manual CO2 draft v2' } });
+  assert.equal(patched.name, 'Manual CO2 draft v2');
+  const published = await request(`/api/v1/listings/${created.id}/publish`, { method: 'POST', user: 'user-seller', body: { version: patched.version } });
+  assert.equal(published.state, 'published');
+  const hidden = await request(`/api/v1/listings/${created.id}`, { user: 'user-buyer', expectedStatus: 200 });
+  assert.equal(hidden.state, 'published');
+  await request('/api/v1/demo/seed', { method: 'POST' });
 });
 
 test('marketplace lists and deterministic match groups are available', async () => {
@@ -67,10 +102,17 @@ test('process discovery returns candidate opportunities without inventing invent
   assert.ok(discovered.candidates.some((item) => item.material === 'captured_co2'));
   assert.ok(discovered.candidates.every((item) => item.canPublish === false));
   assert.ok(discovered.candidates.every((item) => item.quantity === null && item.price === null));
+  const textile = await request('/api/v1/processes/discover', { method: 'POST', user: 'user-seller', body: { description: 'We cut and sew cotton fabric into garments and collect clean fabric offcuts for reuse.' } });
+  assert.ok(textile.candidates.some((item) => item.material === 'textile_offcuts'));
   const detail = await request(`/api/v1/processes/${discovered.process.id}`, { user: 'user-seller' });
   assert.equal(detail.process.id, discovered.process.id);
+  const processList = await request('/api/v1/processes', { user: 'user-seller' });
+  assert.ok(processList.items.some((item) => item.id === discovered.process.id && item.candidates.length > 0));
   const forbidden = await request(`/api/v1/processes/${discovered.process.id}`, { user: 'user-buyer', expectedStatus: 404 });
   assert.equal(forbidden.error.code, 'NOT_FOUND');
+
+  const invalidDate = await request('/api/v1/requirements', { method: 'POST', body: { name: 'Invalid date', siteId: 'site-buyer', periodStart: '2026-02-30', periodEnd: '2026-03-01', quantityTonnes: 1, minimumPurityMolPct: 95, acceptableForms: ['gas'], limits: [] }, expectedStatus: 400 });
+  assert.equal(invalidDate.error.code, 'INVALID_DATE');
 
   const conversation = await request('/api/v1/conversations', { method: 'POST', user: 'user-seller', body: { title: 'Seller listing draft' } });
   const processInChat = await request(`/api/v1/conversations/${conversation.id}/messages`, { method: 'POST', user: 'user-seller', body: { message: 'Our cement process uses carbon capture on flue gas and stores captured carbon dioxide.' } });
@@ -111,6 +153,22 @@ test('assistant routes through deterministic tools and requires confirmation for
   const requestId = confirmed.response.receipt.id;
   const requests = await request('/api/v1/requests');
   assert.ok(requests.items.some((item) => item.id === requestId && item.status === 'pending_supplier'));
+});
+
+test('manual request routes use the same match snapshot, version checks and idempotency', async () => {
+  const match = await request('/api/v1/match-runs', { method: 'POST', body: { requirement_id: 'requirement-demo', expected_requirement_version: 1 } });
+  const selected = match.results.find((item) => item.streamId === 'stream-d' && item.status === 'compatible');
+  assert.ok(selected);
+  const requestBody = { match_result_id: selected.id, quantity_t: '100', expected_supply_version: 1, expected_requirement_version: 1, expectedDeliveredPaisePerTonne: selected.economics.deliveredPaisePerTonne };
+  const first = await request('/api/v1/requests', { method: 'POST', body: requestBody, headers: { 'Idempotency-Key': 'manual-request-d-1' } });
+  const replay = await request('/api/v1/requests', { method: 'POST', body: requestBody, headers: { 'Idempotency-Key': 'manual-request-d-1' } });
+  assert.equal(replay.id, first.id);
+  const conflict = await request('/api/v1/requests', { method: 'POST', body: { ...requestBody, quantity_t: '90' }, headers: { 'Idempotency-Key': 'manual-request-d-1' }, expectedStatus: 409 });
+  assert.equal(conflict.error.code, 'IDEMPOTENCY_CONFLICT');
+  const accepted = await request(`/api/v1/requests/${first.id}/accept`, { method: 'POST', user: 'user-seller', body: { version: first.version, expected_supply_version: 1 }, headers: { 'Idempotency-Key': 'manual-accept-d-1' } });
+  assert.equal(accepted.request.status, 'accepted');
+  const acceptedReplay = await request(`/api/v1/requests/${first.id}/accept`, { method: 'POST', user: 'user-seller', body: { version: first.version, expected_supply_version: 1 }, headers: { 'Idempotency-Key': 'manual-accept-d-1' } });
+  assert.equal(acceptedReplay.reservation.id, accepted.reservation.id);
 });
 
 test('seller acceptance creates one reservation after a second exact confirmation', async () => {
