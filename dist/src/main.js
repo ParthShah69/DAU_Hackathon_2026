@@ -118,6 +118,7 @@ const fallbackNegotiations = [
 const fallbackDemands = [
   { id: 'requirement-demo', name: 'October concrete curing requirement', quantityTonnes: '100', minimumPurityMolPct: '95', acceptableForms: ['gas'], periodStart: '2026-10-01', periodEnd: '2026-10-31', synthetic: true, buyer: { id: 'org-greenbuild', name: 'GreenBuild Concrete', kind: 'buyer', verificationStatus: 'verified', details: { industry: 'Low-carbon concrete manufacturing', facilityLocation: 'Rajkot, Gujarat', requiredAmount: '100 tonnes/month', deliveryLocation: 'Rajkot curing facility' } } }
 ]
+const fallbackAssessment = { role: 'supplier', methodology: 'Synthetic demo planning estimate: Scope 1 process + fuel, Scope 2 electricity. Not a verified inventory.', emissions: { scope1ProcessTonnes: 12400, scope1FuelTonnes: 1800, scope2ElectricityTonnes: 2240, totalTonnes: 16440, intensityTonnesPerProduct: 1.096, electricityKwh: 3200000 }, marketContext: { annualCapturedTonnes: 8400, visibleBuyerDemandTonnes: 100, averageBuyerRequestTonnes: 100, excessCapturedTonnes: 8300 }, confidence: { score: 100, level: 'high' }, actions: [{ priority: 1, title: 'Cut electricity intensity first', rationale: 'Electricity use is a material source in this demo facility. Meter compressors, motors and heat systems by line before selecting improvements.', estimatedReductionTonnes: 179, evidenceNeeded: '12 monthly electricity bills or meter exports' }, { priority: 2, title: 'Optimize the emissions-generating process', rationale: 'Process CO₂ remains the largest source. Review operating set points, feedstock and capture efficiency; utilization alone is not a reduction.', estimatedReductionTonnes: 744, evidenceNeeded: 'Process meter or mass-balance records' }, { priority: 3, title: 'Do not treat excess captured CO₂ as a reduction', rationale: 'Captured CO₂ exceeds current buyer demand. Aggregate demand and prioritize upstream operational reduction.', estimatedReductionTonnes: 0, evidenceNeeded: 'Capture meter and delivery records' }] }
 
 const processSteps = [
   ['01', 'Capture', 'Process gas collected at the stack or separator', 'input'],
@@ -540,6 +541,7 @@ async function hydrate() {
     state.live.status = 'demo'
     state.data.listings = fallbackListingRecords.map((record) => mapListing(record))
     state.data.demands = fallbackDemands.slice()
+    state.data.assessment = fallbackAssessment
     state.data.negotiations = fallbackNegotiations
     seedAssistantGreeting()
     render()
@@ -563,6 +565,7 @@ async function hydrate() {
     state.live.error = error.message
     state.data.listings = fallbackListingRecords.map((record) => mapListing(record))
     state.data.demands = fallbackDemands.slice()
+    state.data.assessment = fallbackAssessment
     state.data.negotiations = fallbackNegotiations
     setNotice(`Live API unavailable. Showing degraded demo data. ${error.message}`)
   }
