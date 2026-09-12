@@ -239,9 +239,13 @@ export async function getActivity() {
 export async function listMarketplaceListings(filters = {}) {
   return apiRequest(`/marketplace/listings${queryString({ state: 'published', ...filters })}`)
 }
+export async function listMarketplaceDemands() { return apiRequest('/marketplace/demands') }
+export async function offerOnMarketplaceDemand(requirementId, payload) { return apiRequest(`/marketplace/demands/${encodeURIComponent(requirementId)}/offers`, { method: 'POST', body: payload }) }
+export async function getMarketplaceOrganization(organizationId) { return apiRequest(`/marketplace/organizations/${encodeURIComponent(organizationId)}`) }
 export async function listNegotiations() { return apiRequest('/negotiations') }
 export async function createNegotiation(payload) { return apiRequest('/negotiations', { method: 'POST', body: payload }) }
 export async function sendNegotiationMessage(threadId, payload) { return apiRequest(`/negotiations/${encodeURIComponent(threadId)}/messages`, { method: 'POST', body: payload }) }
+export async function pauseNegotiation(threadId) { return apiRequest(`/negotiations/${encodeURIComponent(threadId)}/pause`, { method: 'POST', body: {} }) }
 
 export async function getListing(listingId) {
   return apiRequest(`/listings/${encodeURIComponent(listingId)}`)
@@ -313,8 +317,9 @@ export async function createAppreciation(payload) {
 
 export async function loadWorkspace(listingFilters = {}) {
   const empty = []
-  const [listings, requirements, requests, capabilities, processes, me, dashboard, activity, projects, balanceRequests, participations, appreciations, profile, negotiations] = await Promise.all([
+  const [listings, demands, requirements, requests, capabilities, processes, me, dashboard, activity, projects, balanceRequests, participations, appreciations, profile, negotiations] = await Promise.all([
     optionalRequest(`/marketplace/listings${queryString({ state: 'published', ...listingFilters })}`),
+    optionalRequest('/marketplace/demands'),
     optionalRequest('/requirements'),
     optionalRequest('/requests'),
     optionalRequest('/assistant/capabilities'),
@@ -331,6 +336,7 @@ export async function loadWorkspace(listingFilters = {}) {
   ])
   return {
     listings: asItems(listings),
+    demands: asItems(demands),
     requirements: asItems(requirements),
     requests: asItems(requests),
     capabilities,

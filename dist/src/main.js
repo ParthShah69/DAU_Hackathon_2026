@@ -21,6 +21,9 @@ import {
   getSessionToken,
   getDemoUser,
   listMarketplaceListings,
+  listMarketplaceDemands,
+  offerOnMarketplaceDemand,
+  getMarketplaceOrganization,
   getListing,
   createListing,
   publishListing,
@@ -36,6 +39,7 @@ import {
   listNegotiations,
   createNegotiation,
   sendNegotiationMessage,
+  pauseNegotiation,
   saveOrganizationProfile,
   submitOrganizationProfile,
   listVerificationQueue,
@@ -103,6 +107,8 @@ const state = {
   listingDetail: null,
   listingDetailOpen: false,
   createListingOpen: false,
+  demandOfferOpen: null,
+  organizationProfileOpen: null,
   marketQuery: '',
   marketFilters: { sourceIndustry: '', minPurityMolPct: '', availableFrom: '', availableTo: '' },
   filterMenu: '',
@@ -117,7 +123,7 @@ const state = {
   selectedRequestId: null,
   matchRun: null,
   reportGenerated: false,
-  data: { listings: [], requirements: [], requests: [], capabilities: null, processes: [], dashboard: null, activity: [], projects: [], balanceRequests: [], participations: [], appreciations: [], profile: null, verificationQueue: [], negotiations: [], me: null },
+  data: { listings: [], demands: [], requirements: [], requests: [], capabilities: null, processes: [], dashboard: null, activity: [], projects: [], balanceRequests: [], participations: [], appreciations: [], profile: null, verificationQueue: [], negotiations: [], me: null },
   live: { status: isDemoMode ? 'demo' : 'connecting', error: null },
   auth: { unlocked: hasActiveSession() || hasChosenDemoActor(), tab: 'login', error: '', form: { displayName: '', email: '', password: '', organizationName: '', organizationKind: 'supplier', city: '' } },
   demoActors: fallbackDemoActors.slice(),
@@ -409,6 +415,7 @@ function navigate(view, { replace = false } = {}) {
 
 function applyWorkspace(workspace) {
   state.data.listings = (workspace?.listings || []).map(mapListing)
+  state.data.demands = workspace?.demands || []
   state.data.requirements = (workspace?.requirements || []).map(mapRequirement)
   state.data.requests = (workspace?.requests || []).map(mapRequest)
   state.data.processes = workspace?.processes || []
@@ -1168,6 +1175,8 @@ function shell() {
     ${state.panels.unavailable ? unavailablePanel() : ''}
     ${state.listingDetailOpen ? listingDetailPanel() : ''}
     ${state.createListingOpen ? createListingPanel() : ''}
+    ${state.demandOfferOpen ? demandOfferPanel() : ''}
+    ${state.organizationProfileOpen ? organizationProfilePanel() : ''}
   </div>`
 }
 
@@ -1205,17 +1214,20 @@ function filterChip(key, value, label) {
 
 function marketplace() {
   const currentListings = visibleListings()
+  const demands = state.data.demands || []
   const degraded = state.live.status === 'fallback' || (state.live.status !== 'connected' && !state.data.listings.length)
   const who = identity()
   const createAction = who.kind === 'supplier' ? button('＋ Create a listing', 'button button-dark', 'open-create-listing') : ''
   const groups = state.matchRun?.groups
-  return `${intro('Trade · Captured CO₂', 'Find the right next user.', 'Every result is ranked from quality fit, availability, distance and evidence. Prices are shown with their basis and date.', createAction)}
+  const demandCards = demands.length ? demands.map((item) => `<article class="listing-card"><div class="listing-art blue"><span>◎</span><small>NEED</small></div><div class="listing-main"><div class="listing-heading"><div><span class="match-score">Open request</span><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.buyer?.name || 'Buyer')} · ${escapeHtml(item.buyer?.details?.industry || 'Industry undisclosed')}</p></div></div><div class="listing-facts"><span><b>Need</b>${escapeHtml(item.quantityTonnes)} t</span><span><b>Purity</b>≥${escapeHtml(item.minimumPurityMolPct)}%</span><span><b>Form</b>${escapeHtml((item.acceptableForms || []).join(', '))}</span><span><b>Delivery</b>${escapeHtml(dateWindow(item.periodStart, item.periodEnd))}</span></div><div class="listing-footer"><span class="evidence-state ${item.buyer?.verificationStatus === 'verified' ? 'verified' : 'missing'}"><i></i> ${escapeHtml(readableStatus(item.buyer?.verificationStatus))}</span><button class="text-button" data-action="view-org" data-organization-id="${escapeHtml(item.buyer?.id)}">View buyer profile →</button>${who.kind === 'supplier' ? `<button class="text-button" data-action="open-demand-offer" data-demand-id="${escapeHtml(item.id)}">Offer supply →</button>` : ''}</div></div></article>`).join('') : '<div class="empty-state">No public buyer requests yet.</div>'
+  return `${intro('Trade · Captured CO₂', 'Find the right next user.', 'Buyers publish the tonnes and delivery month they need. Suppliers can send a structured offer; NGOs can view market needs without private conversation access.', createAction)}
     ${degraded ? `<div class="runtime-notice">Degraded demo data · CarbonStone seed copies (stream-a/d/f/unknown)</div>` : ''}
     <div class="market-toolbar"><div class="search-box"><span>⌕</span><input aria-label="Search marketplace" placeholder="Search by material, use or location" data-market-search /></div>
       <div class="filter-group"><button class="filter-button ${state.filterMenu === 'material' ? 'open' : ''}" data-action="toggle-filter" data-filter="material">Material <span>⌄</span></button>${state.filterMenu === 'material' ? `<div class="filter-menu">${filterChip('sourceIndustry', '', 'All')}${filterChip('sourceIndustry', 'cement', 'Cement')}${filterChip('sourceIndustry', 'fertilizer', 'Fertilizer')}</div>` : ''}</div>
       <div class="filter-group"><button class="filter-button ${state.filterMenu === 'quality' ? 'open' : ''}" data-action="toggle-filter" data-filter="quality">Quality <span>⌄</span></button>${state.filterMenu === 'quality' ? `<div class="filter-menu">${filterChip('minPurityMolPct', '', 'Any purity')}${filterChip('minPurityMolPct', '95', '≥ 95%')}${filterChip('minPurityMolPct', '97', '≥ 97%')}${filterChip('minPurityMolPct', '98', '≥ 98%')}</div>` : ''}</div>
       <div class="filter-group"><button class="filter-button ${state.filterMenu === 'availability' ? 'open' : ''}" data-action="toggle-filter" data-filter="availability">Availability <span>⌄</span></button>${state.filterMenu === 'availability' ? `<div class="filter-menu">${filterChip('availableFrom', '', 'Any window')}<button type="button" class="filter-option" data-action="set-availability" data-from="2026-10-01" data-to="2026-10-31">October 2026</button><button type="button" class="filter-option" data-action="set-availability" data-from="2026-11-01" data-to="2026-11-30">November 2026</button></div>` : ''}</div>
       <span class="result-count">${currentListings.length} results</span></div>
+    <section class="panel"><div class="panel-title"><div><span class="eyebrow">Buyer requests</span><h3>CO₂ needed · ${demands.length} open</h3></div></div><div class="listing-list">${demandCards}</div></section>
     <div class="market-layout"><div class="listing-list">${currentListings.length ? currentListings.map((item) => `<article class="listing-card ${state.selectedListing === item.id ? 'selected' : ''}" data-listing="${item.id}"><div class="listing-art ${item.color}"><span>◌</span><small>CO₂</small></div><div class="listing-main"><div class="listing-heading"><div><span class="match-score">${item.score === null ? 'Unranked' : `${item.score}% fit`}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.supplier)} · ${escapeHtml(item.location)}</p></div><button class="select-circle ${state.selectedListing === item.id ? 'checked' : ''}" aria-label="Select ${escapeHtml(item.title)}">${state.selectedListing === item.id ? '✓' : ''}</button></div><div class="listing-facts"><span><b>Quantity</b>${escapeHtml(item.quantity)}</span><span><b>Purity</b>${escapeHtml(item.purity)}</span><span><b>Price</b>${escapeHtml(item.price)}</span><span><b>Available</b>${escapeHtml(item.availability)}</span></div><div class="listing-footer"><span class="evidence-state ${evidenceClass(item.evidenceStatus)}"><i></i> ${escapeHtml(item.evidence)}</span><button class="text-button" data-action="view-listing" data-listing="${item.id}">View details →</button></div></div></article>`).join('') : `<div class="empty-state">No listings match these filters.</div>`}</div>${matchGroupsPanel(groups)}</div>`
 }
 
@@ -1235,10 +1247,22 @@ function listingDetailPanel() {
   return `<div class="slide-overlay" data-action="close-listing"><aside class="slide-panel listing-detail" data-stop="true"><div class="panel-title"><div><span class="eyebrow">Listing</span><h3>${escapeHtml(item.title)}</h3></div><button class="icon-button subtle" data-action="close-listing">×</button></div>
     <div class="listing-facts"><span><b>Quantity</b>${escapeHtml(item.quantity)}</span><span><b>Purity</b>${escapeHtml(item.purity)}</span><span><b>Price</b>${escapeHtml(item.price)}</span><span><b>Window</b>${escapeHtml(item.availability)}</span></div>
     <p class="muted">${escapeHtml(item.supplier)} · ${escapeHtml(item.location)}</p>
+    ${item.raw?.supplierOrganizationId ? `<button class="text-button" data-action="view-org" data-organization-id="${escapeHtml(item.raw.supplierOrganizationId)}">View supplier profile →</button>` : ''}
     <p><span class="evidence-state ${evidenceClass(item.evidenceStatus)}"><i></i> ${escapeHtml(item.evidence)}</span></p>
     <p class="muted">Source: ${escapeHtml(source)}${item.synthetic ? ' · synthetic flag on' : ''}</p>
     ${who.kind === 'buyer' ? `<form class="listing-request-form stacked-form"><span class="eyebrow">Request this supply</span><label class="field-label" for="req-qty">Quantity (tonnes)</label><input id="req-qty" name="quantityTonnes" type="number" min="0.001" step="0.001" required /><label class="field-label" for="req-month">Month</label><input id="req-month" name="deliveryMonth" type="month" required value="2026-10" /><label class="field-label" for="req-purity">Min purity (%)</label><input id="req-purity" name="minimumPurityMolPct" type="number" min="0" max="100" step="0.1" value="95" required /><button class="button button-dark" type="submit">Request this supply</button></form>` : '<p class="muted">Buyer workspaces can send a supply request from this panel.</p>'}
   </aside></div>`
+}
+
+function demandOfferPanel() {
+  const demand = state.demandOfferOpen
+  return overlayPanel('demand-offer', 'Offer supply', `<p class="muted">Your offer goes only to ${escapeHtml(demand.buyer?.name || 'the buyer')}. It creates a private negotiation; other organizations cannot read it.</p><form class="demand-offer-form stacked-form"><input type="hidden" name="requirementId" value="${escapeHtml(demand.id)}" /><label class="field-label">Quantity (tonnes)</label><input name="quantity" type="number" min="0.001" step="0.001" required value="${escapeHtml(demand.quantityTonnes || '')}" /><label class="field-label">Purity / quality</label><input name="purity" required placeholder="e.g. ≥ 98% dry basis" /><label class="field-label">Price basis</label><input name="priceBasis" placeholder="e.g. ₹2,100/t delivered" /><label class="field-label">Delivery plan</label><input name="delivery" placeholder="e.g. Road tanker to buyer site" /><label class="field-label">Message</label><textarea name="message" rows="4" required placeholder="State availability and any conditions."></textarea><div class="editor-footer"><button type="button" class="text-button" data-action="close-demand-offer">Cancel</button><button class="button button-dark" type="submit">Send private offer</button></div></form>`)
+}
+
+function organizationProfilePanel() {
+  const profile = state.organizationProfileOpen
+  const details = Object.entries(profile.details || {})
+  return overlayPanel('organization-profile', profile.name || 'Organization profile', `<p><span class="evidence-state ${profile.verificationStatus === 'verified' ? 'verified' : 'missing'}"><i></i> ${escapeHtml(readableStatus(profile.verificationStatus))}</span></p><p class="muted">${escapeHtml(kindLabel(profile.kind))} · profile shared for marketplace evaluation.</p>${details.length ? `<dl class="listing-facts">${details.map(([key, value]) => `<span><b>${escapeHtml(key.replace(/([A-Z])/g, ' $1'))}</b>${escapeHtml(value)}</span>`).join('')}</dl>` : '<p class="muted">No public operating details have been shared yet.</p>'}<p class="field-hint">Contact details and verification documents remain private until both parties choose to continue in a negotiation.</p>`)
 }
 
 function createListingPanel() {
@@ -1337,7 +1361,7 @@ function appreciationView() {
 
 function negotiationsView() {
   const threads = state.data.negotiations || []
-  return `${intro('Private trade workspace', 'Negotiations', 'Only the buyer and seller involved in an offer can see this history. Demo offers are fictional and do not create a contract.')}<div class="request-layout"><section class="panel request-panel"><div class="panel-title"><div><span class="eyebrow">Open conversations</span><h3>${threads.length} private thread${threads.length === 1 ? '' : 's'}</h3></div></div><div class="request-list">${threads.length ? threads.map((thread) => `<button class="request-row" data-action="select-negotiation" data-thread-id="${escapeHtml(thread.id)}"><div class="avatar avatar-blue">${escapeHtml(initials(thread.counterparty))}</div><div><strong>${escapeHtml(thread.counterparty)}</strong><span>${escapeHtml(thread.summary?.quantity || '')} ${escapeHtml(thread.summary?.unit || '')} · ${escapeHtml(thread.status)}</span></div></button>`).join('') : '<div class="empty-state">No private negotiations yet.</div>'}</div></section><section class="panel request-timeline">${(() => { const thread = threads.find((item) => item.id === state.selectedNegotiationId) || threads[0]; return thread ? `<div class="panel-title"><div><span class="eyebrow">${escapeHtml(thread.counterparty)}</span><h3>${escapeHtml(thread.summary.quantity)} ${escapeHtml(thread.summary.unit)} · ${escapeHtml(thread.summary.purity)}</h3></div>${statusPill(readableStatus(thread.status))}</div><p class="muted">${escapeHtml(thread.summary.priceBasis)} · ${escapeHtml(thread.summary.delivery)} · ${escapeHtml(thread.summary.schedule)}</p><div class="chat-messages">${(thread.messages || []).map((message) => `<div class="message-row ${message.organizationId === identity().organizationId ? 'user' : 'assistant'}"><div class="message-body"><div class="message-bubble">${escapeHtml(message.content)}</div><time>${escapeHtml(message.createdAt)}</time></div></div>`).join('')}</div><form class="negotiation-message-form composer"><input type="hidden" name="threadId" value="${escapeHtml(thread.id)}" /><input name="message" required placeholder="Write a private reply…" /><button class="send-button" type="submit">↑</button></form>` : '<div class="empty-state">Select a negotiation.</div>' } )()}</section></div>`
+  return `${intro('Private trade workspace', 'Negotiations', 'Only the buyer and seller involved in an offer can see this history. Pausing a thread stops further messages without removing the record.')}<div class="request-layout"><section class="panel request-panel"><div class="panel-title"><div><span class="eyebrow">Open conversations</span><h3>${threads.length} private thread${threads.length === 1 ? '' : 's'}</h3></div></div><div class="request-list">${threads.length ? threads.map((thread) => `<button class="request-row" data-action="select-negotiation" data-thread-id="${escapeHtml(thread.id)}"><div class="avatar avatar-blue">${escapeHtml(initials(thread.counterparty))}</div><div><strong>${escapeHtml(thread.counterparty)}</strong><span>${escapeHtml(thread.summary?.quantity || '')} ${escapeHtml(thread.summary?.unit || '')} · ${escapeHtml(thread.status)}</span></div></button>`).join('') : '<div class="empty-state">No private negotiations yet.</div>'}</div></section><section class="panel request-timeline">${(() => { const thread = threads.find((item) => item.id === state.selectedNegotiationId) || threads[0]; const paused = thread?.status === 'paused'; return thread ? `<div class="panel-title"><div><span class="eyebrow">${escapeHtml(thread.counterparty)}</span><h3>${escapeHtml(thread.summary.quantity)} ${escapeHtml(thread.summary.unit)} · ${escapeHtml(thread.summary.purity)}</h3></div>${statusPill(readableStatus(thread.status))}</div><p class="muted">${escapeHtml(thread.summary.priceBasis)} · ${escapeHtml(thread.summary.delivery)} · ${escapeHtml(thread.summary.schedule)}</p><div class="chat-messages">${(thread.messages || []).map((message) => `<div class="message-row ${message.organizationId === identity().organizationId ? 'user' : 'assistant'}"><div class="message-body"><div class="message-bubble">${escapeHtml(message.content)}</div><time>${escapeHtml(message.createdAt)}</time></div></div>`).join('')}</div>${paused ? '<p class="muted">This conversation is paused. No further reply is required.</p>' : `<div class="editor-footer"><button class="text-button" data-action="pause-negotiation" data-thread-id="${escapeHtml(thread.id)}">Pause conversation</button></div><form class="negotiation-message-form composer"><input type="hidden" name="threadId" value="${escapeHtml(thread.id)}" /><input name="message" required placeholder="Write a private reply…" /><button class="send-button" type="submit">↑</button></form>`}` : '<div class="empty-state">Select a negotiation.</div>' } )()}</section></div>`
 }
 
 function assistantCard(kind, payload = {}) {
@@ -1540,6 +1564,14 @@ document.addEventListener('click', (event) => {
     return
   }
   if (action === 'view-listing') { openListingDetail(target.dataset.listing); return }
+  if (action === 'open-demand-offer') { state.demandOfferOpen = (state.data.demands || []).find((item) => item.id === target.dataset.demandId) || null; render(); return }
+  if (action === 'close-demand-offer') { state.demandOfferOpen = null; render(); return }
+  if (action === 'view-org') {
+    if (!target.dataset.organizationId) return
+    getMarketplaceOrganization(target.dataset.organizationId).then((profile) => { state.organizationProfileOpen = profile; render() }).catch((error) => setNotice(error.message))
+    return
+  }
+  if (action === 'close-organization-profile') { state.organizationProfileOpen = null; render(); return }
   if (action === 'close-listing') { state.listingDetailOpen = false; render(); return }
   if (action === 'open-create-listing') { state.createListingOpen = true; render(); return }
   if (action === 'close-create-listing') { state.createListingOpen = false; render(); return }
@@ -1551,6 +1583,10 @@ document.addEventListener('click', (event) => {
   }
   if (action === 'select-request') { state.selectedRequestId = target.dataset.requestId; render(); return }
   if (action === 'select-negotiation') { state.selectedNegotiationId = target.dataset.threadId; render(); return }
+  if (action === 'pause-negotiation') {
+    pauseNegotiation(target.dataset.threadId).then(() => loadWorkspace(listingFilterPayload())).then((workspace) => { applyWorkspace(workspace); setNotice('Negotiation paused. Either party can leave it without further messages.'); render() }).catch((error) => setNotice(error.message))
+    return
+  }
   if (action === 'accept-request') { manageRequest(target.dataset.requestId, 'accept'); return }
   if (action === 'decline-request') { manageRequest(target.dataset.requestId, 'decline'); return }
   if (action === 'accept-balance') { decideBalanceOffer(target.dataset.requestId, 'accept'); return }
@@ -1586,6 +1622,16 @@ document.addEventListener('submit', (event) => {
   if (event.target.matches('.auth-register-form')) { event.preventDefault(); submitAuth('register', event.target); return }
   if (event.target.matches('.manual-requirement-form')) { event.preventDefault(); saveManualRequirement(event.target); return }
   if (event.target.matches('.listing-request-form')) { event.preventDefault(); submitListingRequest(event.target); return }
+  if (event.target.matches('.demand-offer-form')) {
+    event.preventDefault()
+    const values = new FormData(event.target)
+    const requirementId = String(values.get('requirementId') || '')
+    const payload = { quantity: String(values.get('quantity') || ''), purity: String(values.get('purity') || ''), priceBasis: String(values.get('priceBasis') || ''), delivery: String(values.get('delivery') || ''), message: String(values.get('message') || '') }
+    if (!canUseLive()) { setNotice('Start the API to send a private offer.'); return }
+    state.busy = true; render()
+    offerOnMarketplaceDemand(requirementId, payload).then(() => loadWorkspace(listingFilterPayload())).then((workspace) => { applyWorkspace(workspace); state.demandOfferOpen = null; state.view = 'negotiations'; setNotice('Private offer sent. The buyer can now review your profile and reply.'); render() }).catch((error) => setNotice(error.message)).finally(() => { state.busy = false; render() })
+    return
+  }
   if (event.target.matches('.listing-create-form')) { event.preventDefault(); submitCreateListing(event.target); return }
   if (event.target.matches('.balance-request-form')) { event.preventDefault(); submitBalanceRequest(event.target); return }
   if (event.target.matches('.project-create-form')) { event.preventDefault(); submitProject(event.target); return }
