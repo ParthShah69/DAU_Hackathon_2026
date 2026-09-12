@@ -14,6 +14,7 @@ const { getRequest, listRequests, createSupplyRequest, acceptRequest, transition
 const { register, login, logout, listDemoActors, sessionCookie, organizationKind } = require('./domain/accounts');
 const ngo = require('./domain/ngo');
 const onboarding = require('./domain/onboarding');
+const verificationDocuments = require('./domain/verification-documents');
 const negotiations = require('./domain/negotiations');
 const {
   addParticipation,
@@ -309,6 +310,33 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       if (request.method === 'POST' && path === '/api/v1/organization-profile/submit') {
         requireRole(actor, ['org_admin']);
         jsonResponse(response, 200, onboarding.submitProfile(store, actor), requestId, request);
+        return;
+      }
+      if (request.method === 'GET' && path === '/api/v1/organization-documents') {
+        jsonResponse(response, 200, verificationDocuments.listOwnDocuments(store, actor), requestId, request);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/organization-documents') {
+        requireRole(actor, ['org_admin']);
+        jsonResponse(response, 201, verificationDocuments.uploadDocument(store, actor, await readJson(request)), requestId, request);
+        return;
+      }
+      if (request.method === 'GET' && path === '/api/v1/admin/verification-queue') {
+        jsonResponse(response, 200, verificationDocuments.adminQueue(store, actor), requestId, request);
+        return;
+      }
+      const adminSubmissionMatch = path.match(/^\/api\/v1\/admin\/verification-submissions\/([^/]+)$/);
+      if (request.method === 'GET' && adminSubmissionMatch) {
+        jsonResponse(response, 200, verificationDocuments.adminSubmission(store, actor, adminSubmissionMatch[1]), requestId, request);
+        return;
+      }
+      if (request.method === 'POST' && adminSubmissionMatch) {
+        jsonResponse(response, 200, verificationDocuments.reviewSubmission(store, actor, adminSubmissionMatch[1], await readJson(request)), requestId, request);
+        return;
+      }
+      const documentReviewMatch = path.match(/^\/api\/v1\/admin\/verification-submissions\/([^/]+)\/documents\/([^/]+)\/review$/);
+      if (request.method === 'POST' && documentReviewMatch) {
+        jsonResponse(response, 200, verificationDocuments.reviewDocument(store, actor, documentReviewMatch[1], documentReviewMatch[2], await readJson(request)), requestId, request);
         return;
       }
       if (request.method === 'GET' && path === '/api/v1/verification-queue') {

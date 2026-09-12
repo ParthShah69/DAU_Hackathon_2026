@@ -6,9 +6,11 @@ const { createApp } = require('../src/app');
 
 let server;
 let baseUrl;
+let store;
 
 test.before(async () => {
-  server = http.createServer(createApp({ store: new Store() }));
+  store = new Store();
+  server = http.createServer(createApp({ store }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
@@ -72,6 +74,57 @@ test('register supplier, login, and read me via Bearer token', async () => {
   assert.equal(me.data.organizationKind, 'supplier');
   assert.equal(me.data.session.authenticated, true);
   assert.equal(me.data.session.method, 'session');
+});
+
+test('document metadata is private to the applicant and platform admins can review it with comments', async () => {
+  const registered = await request('/api/v1/auth/register', {
+    method: 'POST',
+    body: {
+      displayName: 'Documented Producer', email: 'documents@kiln.example', password: 'secure-pass-2026',
+      organizationName: 'Document Kiln', organizationKind: 'supplier', city: 'Surat'
+    },
+    expectedStatus: 201
+  });
+  const token = registered.data.session.token;
+  const ownBefore = await request('/api/v1/organization-documents', { token });
+  assert.deepEqual(ownBefore.data.items, []);
+  const document = await request('/api/v1/organization-documents', {
+    method: 'POST', token,
+    body: { documentType: 'business_registration', fileName: 'document-kiln-registration.pdf', mimeType: 'application/pdf', sizeBytes: 342000, description: 'Certificate of incorporation.' },
+    expectedStatus: 201
+  });
+  assert.equal(document.data.storage.kind, 'metadata_only_demo');
+  assert.equal(document.data.status, 'pending_review');
+
+  const otherOrgDocuments = await request('/api/v1/organization-documents', { user: 'user-buyer' });
+  assert.equal(otherOrgDocuments.data.items.some((item) => item.id === document.data.id), false);
+  const ngoQueue = await request('/api/v1/admin/verification-queue', { user: 'user-reviewer', expectedStatus: 403 });
+  assert.equal(ngoQueue.data.error.code, 'FORBIDDEN');
+
+  const reviewerMembership = store.findOne('memberships', (item) => item.userId === 'user-reviewer');
+  reviewerMembership.roles = [...reviewerMembership.roles, 'platform_admin'];
+  const profile = await request('/api/v1/organization-profile', { token });
+  await request('/api/v1/organization-profile', {
+    method: 'PATCH', token,
+    body: Object.fromEntries(profile.data.requiredFields.map((field) => [field, field === 'contactEmail' ? 'documents@kiln.example' : 'completed']))
+  });
+  const submitted = await request('/api/v1/organization-profile/submit', { method: 'POST', token, body: {} });
+  const queue = await request('/api/v1/admin/verification-queue', { user: 'user-reviewer' });
+  const item = queue.data.items.find((entry) => entry.id === submitted.data.submission.id);
+  assert.ok(item);
+  assert.equal(item.documents[0].id, document.data.id);
+  const review = await request(`/api/v1/admin/verification-submissions/${item.id}/documents/${document.data.id}/review`, {
+    method: 'POST', user: 'user-reviewer', body: { decision: 'rejected', comment: 'Please upload a current certificate.' }
+  });
+  assert.equal(review.data.status, 'rejected');
+  assert.equal(review.data.reviewHistory[0].comment, 'Please upload a current certificate.');
+  const applicationReview = await request(`/api/v1/admin/verification-submissions/${item.id}`, {
+    method: 'POST', user: 'user-reviewer', body: { status: 'needs_changes', note: 'Please replace the expired registration certificate.' }
+  });
+  assert.equal(applicationReview.data.status, 'needs_changes');
+  assert.equal(applicationReview.data.history.at(-1).note, 'Please replace the expired registration certificate.');
+  const detail = await request(`/api/v1/admin/verification-submissions/${item.id}`, { user: 'user-reviewer' });
+  assert.equal(detail.data.documents[0].reviewHistory.length, 1);
 });
 
 test('role-based onboarding gates publication and supports a multi-capability contributor', async () => {

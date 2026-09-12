@@ -121,7 +121,8 @@ const state = {
   live: { status: isDemoMode ? 'demo' : 'connecting', error: null },
   auth: { unlocked: hasActiveSession() || hasChosenDemoActor(), tab: 'login', error: '', form: { displayName: '', email: '', password: '', organizationName: '', organizationKind: 'supplier', city: '' } },
   demoActors: fallbackDemoActors.slice(),
-  panels: { settings: false, notifications: false, workspace: false, evidenceNote: false, onboarding: false, unavailable: '' },
+  panels: { settings: false, notifications: false, workspace: false, evidenceNote: false, onboarding: false, verificationReview: null, unavailable: '' },
+  onboardingStep: 0,
   evidenceNotes: [],
   messages: [{ role: 'assistant', text: 'Tell me what your process makes, and I’ll map the useful outputs, evidence gaps and next actions for you.', time: '09:41' }],
 }
@@ -421,7 +422,10 @@ function applyWorkspace(workspace) {
   state.data.appreciations = workspace?.appreciations || []
   state.data.profile = workspace?.profile || null
   state.data.negotiations = workspace?.negotiations || []
-  state.panels.onboarding = Boolean(state.data.profile && !state.data.profile.ready && state.data.profile.verificationStatus === 'draft')
+  // New workspaces must provide their operating details before they can publish
+  // or request verification. Submitted/verified workspaces should not be sent
+  // back into the editor automatically.
+  state.panels.onboarding = Boolean(!state.data.profile || (!state.data.profile.ready && ['draft', 'needs_changes'].includes(state.data.profile.verificationStatus || 'draft')))
   const latestProcess = state.data.processes.slice().sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))[0]
   if (latestProcess?.rawDescription) state.processText = latestProcess.rawDescription
   if (state.data.listings[0] && !state.data.listings.some((item) => item.id === state.selectedListing)) state.selectedListing = state.data.listings[0].id
@@ -1091,12 +1095,29 @@ function onboardingPanel() {
     contributor: [['industry', 'Industry'], ['annualEmissions', 'Annual emissions estimate (tCO₂e)'], ['emissionsGap', 'Current emissions-reduction gap (tCO₂e)'], ['sustainabilityBudget', 'Sustainability budget (₹)'], ['contributionType', 'Preferred contribution type']]
   }
   const fields = fieldsByKind[who.kind] || fieldsByKind.buyer
-  return overlayPanel('onboarding', 'Complete your organization profile', `<div class="onboarding-progress"><strong>${profile.percent || 0}% complete</strong><span><i style="width:${profile.percent || 0}%"></i></span><small>Save a draft at any time. Verification submission unlocks publishing and sponsorship requests.</small></div><form class="onboarding-form stacked-form"><input type="hidden" name="organizationName" value="${escapeHtml(who.organizationName)}" /><label class="field-label" for="onboard-email">Authorized contact email</label><input id="onboard-email" name="contactEmail" type="email" required value="${escapeHtml(profile.data?.contactEmail || who.email)}" />${fields.map(([name, label]) => `<label class="field-label" for="onboard-${name}">${label}</label><input id="onboard-${name}" name="${name}" required value="${escapeHtml(profile.data?.[name] || '')}" />`).join('')}<label class="field-label" for="onboard-docs">Verification documents</label><input id="onboard-docs" name="verificationDocuments" placeholder="e.g. Registration certificate, quality report" value="${escapeHtml(profile.data?.verificationDocuments || '')}" /><p class="field-hint">Documents are represented as metadata in this demo; files are never exposed publicly.</p><div class="editor-footer"><button type="button" class="text-button" data-action="close-onboarding">Save later</button><button type="submit" class="button button-dark">Save profile</button><button type="submit" name="submitForReview" value="yes" class="outlined-button">Submit for verification</button></div></form>`)
+  const steps = ['Organization', 'Operating details', 'Documents & review']
+  const step = Math.min(Math.max(state.onboardingStep || 0, 0), steps.length - 1)
+  const detailFields = fields.map(([name, label]) => `<label class="field-label" for="onboard-${name}">${label}</label><input id="onboard-${name}" name="${name}" required value="${escapeHtml(profile.data?.[name] || '')}" />`).join('')
+  return overlayPanel('onboarding', 'Set up your organization', `<div class="onboarding-progress"><strong>${profile.percent || 0}% profile complete</strong><span><i style="width:${profile.percent || 0}%"></i></span><small>Step ${step + 1} of ${steps.length}. A CarbonBridge administrator reviews your application after you submit it.</small></div><ol class="onboarding-steps">${steps.map((label, index) => `<li class="${index === step ? 'active' : index < step ? 'done' : ''}"><span>${index < step ? '✓' : index + 1}</span>${label}</li>`).join('')}</ol><form class="onboarding-form stacked-form"><input type="hidden" name="organizationName" value="${escapeHtml(who.organizationName)}" /><section class="onboarding-step ${step === 0 ? 'active' : ''}" ${step === 0 ? '' : 'hidden'}><p class="field-hint">Tell us who is responsible for this ${escapeHtml(kindLabel(who.kind).toLowerCase())} workspace.</p><label class="field-label" for="onboard-email">Authorized contact email</label><input id="onboard-email" name="contactEmail" type="email" required value="${escapeHtml(profile.data?.contactEmail || who.email)}" /><label class="field-label" for="onboard-signatory">Authorized signatory</label><input id="onboard-signatory" name="authorizedSignatory" required value="${escapeHtml(profile.data?.authorizedSignatory || '')}" placeholder="Full name and position" /><label class="field-label" for="onboard-phone">Contact phone</label><input id="onboard-phone" name="contactPhone" required value="${escapeHtml(profile.data?.contactPhone || '')}" placeholder="Country code and number" /></section><section class="onboarding-step ${step === 1 ? 'active' : ''}" ${step === 1 ? '' : 'hidden'}>${detailFields}</section><section class="onboarding-step ${step === 2 ? 'active' : ''}" ${step === 2 ? '' : 'hidden'}><p class="field-hint">Add the document names and reference details the administrator should review. File content is sent only when a document-upload API is configured; this demo safely records metadata.</p><div class="document-metadata"><label class="field-label" for="onboard-doc-1">Document 1</label><input id="onboard-doc-1" name="document1Name" required value="${escapeHtml(profile.data?.document1Name || '')}" placeholder="e.g. Certificate of incorporation" /><input name="document1Reference" value="${escapeHtml(profile.data?.document1Reference || '')}" placeholder="Document number or issue date" /><label class="field-label" for="onboard-doc-2">Document 2</label><input id="onboard-doc-2" name="document2Name" required value="${escapeHtml(profile.data?.document2Name || '')}" placeholder="e.g. GST / legal registration" /><input name="document2Reference" value="${escapeHtml(profile.data?.document2Reference || '')}" placeholder="Document number or issue date" /><label class="field-label" for="onboard-doc-3">Supporting evidence</label><input id="onboard-doc-3" name="document3Name" value="${escapeHtml(profile.data?.document3Name || '')}" placeholder="e.g. Latest quality test report" /><input name="document3Reference" value="${escapeHtml(profile.data?.document3Reference || '')}" placeholder="Report date or reference" /></div><label class="check-row"><input type="checkbox" name="declarationAccepted" value="yes" ${profile.data?.declarationAccepted === 'yes' ? 'checked' : ''} required /> I confirm these details are accurate and I am authorized to submit them.</label></section><div class="editor-footer">${step > 0 ? '<button type="button" class="text-button" data-action="onboarding-back">Back</button>' : ''}${step < steps.length - 1 ? '<button type="button" class="button button-dark" data-action="onboarding-next">Continue</button>' : `<button type="submit" class="button button-dark">Save profile</button><button type="submit" name="submitForReview" value="yes" class="outlined-button">Submit for admin review</button>`}</div></form>`)
+}
+
+function verificationDocuments(item) {
+  const data = item.profile?.data || item.profileData || item.data || {}
+  const docs = item.documents || data.documents || [1, 2, 3].map((index) => data[`document${index}Name`] ? { name: data[`document${index}Name`], reference: data[`document${index}Reference`] } : null).filter(Boolean)
+  if (typeof docs === 'string') return docs.split(/[,\n]/).map((name) => ({ name: name.trim() })).filter((doc) => doc.name)
+  return Array.isArray(docs) ? docs.map((doc) => typeof doc === 'string' ? { name: doc } : doc).filter((doc) => doc?.name || doc?.fileName || doc?.label) : []
+}
+
+function verificationReviewPanel() {
+  const item = state.panels.verificationReview
+  if (!item) return ''
+  const docs = verificationDocuments(item)
+  return overlayPanel('verification-review', `Review ${item.organization || 'organization'}`, `<form class="verification-review-form stacked-form"><input type="hidden" name="submissionId" value="${escapeHtml(item.id)}" /><div class="review-summary"><strong>${escapeHtml(item.organization || 'Organization')}</strong><span>${escapeHtml(readableStatus(item.status))}</span></div><h4>Submitted documents</h4>${docs.length ? `<ul class="document-list">${docs.map((doc) => `<li><strong>${escapeHtml(doc.name || doc.fileName || doc.label)}</strong><span>${escapeHtml(doc.reference || doc.status || 'Document metadata')}</span></li>`).join('')}</ul>` : '<p class="field-hint">Document metadata was not included by this API response. Refresh after the applicant saves their profile.</p>'}<label class="field-label" for="review-decision">Decision</label><select id="review-decision" name="status" required><option value="verified">Accept and verify</option><option value="needs_changes">Request changes</option><option value="rejected">Reject application</option></select><label class="field-label" for="review-note">Comment for the registrant</label><textarea id="review-note" name="note" rows="5" required placeholder="Explain the decision and any next steps."></textarea><div class="editor-footer"><button type="button" class="text-button" data-action="close-verification-review">Cancel</button><button class="button button-dark" type="submit">Record decision</button></div></form>`)
 }
 
 function verificationView() {
   const queue = state.data.verificationQueue || []
-  return `${intro('Trust · Admin', 'Verification queue', 'Review organization submissions and record a clear, auditable decision. Demo statuses are not third-party certification.')}<section class="panel verification-panel"><div class="panel-title"><div><span class="eyebrow">Pending review</span><h3>${queue.length} submission${queue.length === 1 ? '' : 's'}</h3></div><button class="filter-button" data-action="refresh-verification">Refresh</button></div>${queue.length ? queue.map((item) => `<article class="verification-row"><div><strong>${escapeHtml(item.organization)}</strong><span>${escapeHtml(readableStatus(item.status))} · submitted ${escapeHtml(item.createdAt || '')}</span><small>${escapeHtml(item.history?.at(-1)?.note || 'No reviewer note')}</small></div><div class="verification-actions"><button class="small-action" data-action="review-verification" data-submission-id="${escapeHtml(item.id)}" data-status="verified">Verify</button><button class="text-button" data-action="review-verification" data-submission-id="${escapeHtml(item.id)}" data-status="needs_changes">Needs changes</button></div></article>`).join('') : '<div class="empty-state">No submissions are waiting for review.</div>'}</section>`
+  return `${intro('Trust · Admin', 'Verification queue', 'Review organization applications, inspect submitted document metadata, and send a clear decision to the registrant.')}<section class="panel verification-panel"><div class="panel-title"><div><span class="eyebrow">Applications awaiting a decision</span><h3>${queue.length} submission${queue.length === 1 ? '' : 's'}</h3></div><button class="filter-button" data-action="refresh-verification">Refresh</button></div>${queue.length ? queue.map((item) => { const docs = verificationDocuments(item); return `<article class="verification-row"><div><strong>${escapeHtml(item.organization)}</strong><span>${escapeHtml(readableStatus(item.status))} · submitted ${escapeHtml(item.createdAt || '')}</span><small>${docs.length ? `${docs.length} document${docs.length === 1 ? '' : 's'} attached` : 'Document metadata pending'}</small><small>${escapeHtml(item.history?.at(-1)?.note || 'No reviewer comment yet')}</small></div><div class="verification-actions"><button class="small-action" data-action="open-verification-review" data-submission-id="${escapeHtml(item.id)}">Review application</button></div></article>` }).join('') : '<div class="empty-state">No submissions are waiting for review.</div>'}</section>`
 }
 
 function authScreen() {
@@ -1143,6 +1164,7 @@ function shell() {
     ${state.panels.notifications ? notificationsPanel() : ''}
     ${state.panels.evidenceNote ? evidenceNotePanel() : ''}
     ${state.panels.onboarding ? onboardingPanel() : ''}
+    ${state.panels.verificationReview ? verificationReviewPanel() : ''}
     ${state.panels.unavailable ? unavailablePanel() : ''}
     ${state.listingDetailOpen ? listingDetailPanel() : ''}
     ${state.createListingOpen ? createListingPanel() : ''}
@@ -1464,6 +1486,16 @@ document.addEventListener('click', (event) => {
   if (action === 'open-evidence-note') { state.panels.evidenceNote = true; render(); return }
   if (action === 'close-evidence-note') { state.panels.evidenceNote = false; render(); return }
   if (action === 'close-onboarding') { state.panels.onboarding = false; render(); return }
+  if (action === 'onboarding-next' || action === 'onboarding-back') {
+    const form = target.closest('form')
+    if (form) {
+      const draft = Object.fromEntries(new FormData(form).entries())
+      state.data.profile = { ...(state.data.profile || {}), data: { ...(state.data.profile?.data || {}), ...draft } }
+    }
+    state.onboardingStep = action === 'onboarding-next' ? Math.min(state.onboardingStep + 1, 2) : Math.max(state.onboardingStep - 1, 0)
+    render()
+    return
+  }
   if (action === 'refresh-verification') {
     listVerificationQueue().then((queue) => { state.data.verificationQueue = asItems(queue); render() }).catch((error) => setNotice(error.message))
     return
@@ -1472,6 +1504,12 @@ document.addEventListener('click', (event) => {
     reviewVerification(target.dataset.submissionId, { status: target.dataset.status, note: `Demo reviewer marked this ${target.dataset.status.replace('_', ' ')}.` }).then(() => listVerificationQueue()).then((queue) => { state.data.verificationQueue = asItems(queue); setNotice('Verification decision recorded.'); render() }).catch((error) => setNotice(error.message))
     return
   }
+  if (action === 'open-verification-review') {
+    state.panels.verificationReview = (state.data.verificationQueue || []).find((item) => item.id === target.dataset.submissionId) || null
+    render()
+    return
+  }
+  if (action === 'close-verification-review') { state.panels.verificationReview = null; render(); return }
   if (action === 'close-unavailable') { state.panels.unavailable = ''; render(); return }
   if (action === 'unavailable') { state.panels.unavailable = target.dataset.unavailable || 'Unavailable in this prototype'; render(); return }
   if (action === 'logout') { logoutWorkspace(); return }
@@ -1569,9 +1607,24 @@ document.addEventListener('submit', (event) => {
       state.data.profile = profile
       if (submit) state.data.profile = await submitOrganizationProfile()
       state.panels.onboarding = false
+      state.onboardingStep = 0
       setNotice(submit ? 'Profile submitted for verification.' : 'Organization profile saved as a draft.')
       render()
     }).catch((error) => setNotice(error.message))
+    return
+  }
+  if (event.target.matches('.verification-review-form')) {
+    event.preventDefault()
+    const values = new FormData(event.target)
+    const submissionId = String(values.get('submissionId') || '')
+    const payload = { status: String(values.get('status') || ''), note: String(values.get('note') || '').trim() }
+    state.busy = true
+    render()
+    reviewVerification(submissionId, payload)
+      .then(() => listVerificationQueue())
+      .then((queue) => { state.data.verificationQueue = asItems(queue); state.panels.verificationReview = null; setNotice('Verification decision and comment recorded.') })
+      .catch((error) => setNotice(error.message))
+      .finally(() => { state.busy = false; render() })
     return
   }
   if (event.target.matches('.evidence-note-form')) {

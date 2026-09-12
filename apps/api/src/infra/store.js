@@ -35,6 +35,7 @@ const COLLECTIONS = [
   'appreciations'
   , 'organizationProfiles'
   , 'verificationSubmissions'
+  , 'verificationDocuments'
   , 'offers'
   , 'negotiationThreads'
   , 'negotiationMessages'
