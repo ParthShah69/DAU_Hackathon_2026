@@ -12,6 +12,7 @@
     "seed:demo": "node scripts/seed-demo.mjs --profile demo --seed 26 --clock 2026-09-12T00:00:00Z",
     "check:web": "npm run check --prefix apps/web && npm run build --prefix apps/web",
     "test:api": "npm test --prefix apps/api",
+    "smoke:demo": "node scripts/smoke-auth-market-ngo.mjs",
     "check:all": "npm run check:platform && npm run test:api && npm run check:web"
   },
   "engines": {
