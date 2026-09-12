@@ -1643,16 +1643,22 @@ function assistantResponse(text) {
     }
   }
 
-  // 2. Cancellation and Discarding (handles "No, cancel that", "Cancel", "Discard", "Stop", etc.)
+  // 2. Cancellation and Discarding (handles "No, cancel that", "Cancel", "Discard", "Stop", "Never mind", etc.)
   if (
-    /\b(cancel|discard|abort|reject)\b/i.test(lower) ||
+    /\b(cancel|discard|abort|reject|never\s*mind)\b/i.test(lower) ||
     /^(no|n|stop)\b/i.test(lower) ||
     /\bno,\s*(cancel|stop|discard|reject)\b/i.test(lower)
   ) {
+    if (!state.pendingAction) {
+      return {
+        text: 'No changes were made. Currently there is no pending action waiting to be cancelled.',
+      }
+    }
+    const cancelledSummary = state.pendingAction.summary || 'Action'
     state.pendingActionId = null
     state.pendingAction = null
     return {
-      text: 'Cancelled. The proposed action has been discarded and no changes were made to your workspace.',
+      text: `Cancelled. The proposed action (${cancelledSummary}) has been discarded and no changes were made to your workspace.`,
       card: 'action',
       payload: {
         actionId: `cancel-${Date.now()}`,
@@ -1678,11 +1684,12 @@ function assistantResponse(text) {
     }
   }
 
-  // 3. Request Preparation (e.g. "Prepare a request for the first option", "request option 2", "buy the first option")
+  // 3. Request Preparation (e.g. "Prepare a request for the first option", "request option 2", "select option 2", "buy the first option")
   if (
     /(prepare|create|make|send)?\s*(a\s*)?(request|order|reservation|deal|purchase)\b/i.test(lower) ||
-    /\b(request|reserve|buy|order)\s+(the\s+)?(first|second|third|1st|2nd|3rd|option\s*[123]|stream[- ][adf])/i.test(lower) ||
-    /\b(first|second|third|1st|2nd|3rd)\s+option\b/i.test(lower)
+    /\b(request|reserve|buy|order|select|choose|pick|want|take)\s+(the\s+)?(first|second|third|1st|2nd|3rd|option\s*[123]|stream[- ][adf])/i.test(lower) ||
+    /\b(first|second|third|1st|2nd|3rd)\s+option\b/i.test(lower) ||
+    /^(option\s*[123]|choose\s*[123]|select\s*[123]|pick\s*[123])$/i.test(lower)
   ) {
     let selected = fallbackDemoOptions[0]
     if (/second|2nd|\boption\s*2\b|stream[- ]d/i.test(lower)) {
@@ -1725,6 +1732,11 @@ function assistantResponse(text) {
   ) {
     const extractedQty = extractQuantity(lower)
     const extractedPeriod = extractPeriod(lower)
+    if (extractedQty !== null && extractedQty <= 0) {
+      return {
+        text: `Invalid quantity: ${extractedQty} tonnes. Marketplace search requires a positive quantity greater than 0 tonnes (e.g. 100 tonnes).`,
+      }
+    }
     if (extractedQty !== null || extractedPeriod) {
       state.demoContext = state.demoContext || {}
       if (extractedQty !== null && extractedQty > 0) state.demoContext.quantityTonnes = extractedQty
@@ -1744,10 +1756,30 @@ function assistantResponse(text) {
     }
   }
 
-  // 5. Requirements (e.g. "Create a requirement for 100 tonnes in October 2026", "I need CO2")
-  if (lower.includes('requirement') || (lower.includes('need') && (lower.includes('co2') || lower.includes('gas') || lower.includes('carbon'))) || lower.includes('looking for') || lower.includes('buying')) {
+  // 5. Requirements (e.g. "Create a requirement for 100 tonnes in October 2026", "I need CO2", or multi-turn follow-ups)
+  const isRequirementIntent =
+    lower.includes('requirement') ||
+    (lower.includes('need') && (lower.includes('co2') || lower.includes('gas') || lower.includes('carbon'))) ||
+    lower.includes('looking for') ||
+    lower.includes('buying') ||
+    (state.awaitingRequirement && (extractQuantity(lower) !== null || extractPeriod(lower)))
+
+  if (isRequirementIntent) {
     const rawQty = extractQuantity(lower)
-    const period = extractPeriod(lower)
+    const rawPeriod = extractPeriod(lower)
+
+    // Merge with any existing draft context
+    if (rawQty !== null && rawQty > 0) {
+      state.demoContext = state.demoContext || {}
+      state.demoContext.quantityTonnes = rawQty
+    }
+    if (rawPeriod) {
+      state.demoContext = state.demoContext || {}
+      state.demoContext.period = rawPeriod
+    }
+
+    const effectiveQty = rawQty !== null ? rawQty : (state.demoContext?.quantityTonnes || null)
+    const effectivePeriod = rawPeriod || state.demoContext?.period || null
 
     // Validation: negative or zero quantity
     if (rawQty !== null && rawQty <= 0) {
@@ -1769,10 +1801,11 @@ function assistantResponse(text) {
       }
     }
 
-    if (rawQty === null || !period) {
+    if (effectiveQty === null || !effectivePeriod) {
+      state.awaitingRequirement = true
       const missing = []
-      if (rawQty === null) missing.push('Quantity in tonnes (e.g. 100 tonnes)')
-      if (!period) missing.push('Delivery period (e.g. October 2026)')
+      if (effectiveQty === null) missing.push('Quantity in tonnes (e.g. 100 tonnes)')
+      if (!effectivePeriod) missing.push('Delivery period (e.g. October 2026)')
       return {
         text: 'I can create the buyer requirement, but I need a little more information: ' + missing.join(' and ') + '.',
         card: 'checklist',
@@ -1781,7 +1814,9 @@ function assistantResponse(text) {
       }
     }
 
-    const qty = rawQty
+    state.awaitingRequirement = false
+    const qty = effectiveQty
+    const period = effectivePeriod
     state.demoContext = { quantityTonnes: qty, period }
     const actionId = `action-req-${Date.now()}`
     const actionPayload = {
@@ -1828,8 +1863,28 @@ function assistantResponse(text) {
     }
   }
 
-  // 7. Listings & Drafts
-  if (lower.includes('list') || lower.includes('publish') || lower.includes('draft')) {
+  // 7. Marketplace Browsing (e.g. "Show available listings", "View marketplace", "Browse listings")
+  if (
+    /(show|view|browse|see|what|available|find)\s+.*(listings?|marketplace)/i.test(lower) ||
+    /^(show|view|browse)\s+(the\s+)?marketplace\b/i.test(lower) ||
+    lower === 'listings' || lower === 'marketplace'
+  ) {
+    return {
+      text: 'Here are the current active supply listings in the CarbonBridge marketplace. You can filter by specification or request a match for your delivery period.',
+      card: 'comparison',
+      payload: { options: fallbackDemoOptions },
+      view: 'marketplace',
+    }
+  }
+
+  // 7.5 Listings & Drafts (e.g. "Prepare a listing draft", "Draft a listing", "Publish my CO2 stream")
+  if (
+    /(create|draft|prepare|new|start|make|save)\s+(a\s*)?(listing|draft|offer)\b/i.test(lower) ||
+    /\b(draft|publish)\s+listing\b/i.test(lower) ||
+    /\bprepare\s+a?\s*listing\b/i.test(lower) ||
+    /\blist\s+(this|my|the)?\s*(output|co2|stream|process|opportunity)\b/i.test(lower) ||
+    (lower.includes('draft') && !lower.includes('requirement'))
+  ) {
     const actionId = `action-listing-${Date.now()}`
     const actionPayload = {
       actionId,
@@ -1848,8 +1903,8 @@ function assistantResponse(text) {
     }
   }
 
-  // 8. Evidence
-  if (lower.includes('evidence') || lower.includes('document') || lower.includes('quality')) {
+  // 8. Evidence & Lab Reports
+  if (lower.includes('evidence') || lower.includes('document') || lower.includes('quality') || lower.includes('lab') || lower.includes('certificate')) {
     return {
       text: 'Your next high-value step is to add the latest composition report and monthly capture estimate. I’ll keep the opportunity private until a reviewer validates it.',
       card: 'checklist',
@@ -1868,8 +1923,8 @@ function assistantResponse(text) {
     }
   }
 
-  // 10. Negotiations
-  if (lower.includes('negotiat') || lower.includes('counterparty') || lower.includes('private trade')) {
+  // 10. Negotiations & Counterparty Chats
+  if (lower.includes('negotiat') || lower.includes('counterparty') || lower.includes('private trade') || lower.includes('chat') || lower.includes('message supplier')) {
     return {
       text: 'Opening your private negotiations workspace. Only involved parties can see this history.',
       view: 'negotiations',
@@ -1880,6 +1935,20 @@ function assistantResponse(text) {
   if (lower.includes('help') || lower.includes('what can you do') || lower.includes('capabilities') || lower.includes('who are you')) {
     return {
       text: 'I am CarbonBridge assistant. I can help you discover process outputs, search and compare marketplace supply streams, create buyer requirements, and stage reviewable trade requests.',
+    }
+  }
+
+  // 12. Friendly Greetings
+  if (/^(hi|hello|hey|good\s*(morning|afternoon|evening))\b/i.test(lower)) {
+    return {
+      text: 'Hello! I am CarbonBridge assistant. I can help you evaluate industrial emissions for recoverable CO₂, search and compare marketplace supply options, draft requirements, or stage reviewable trade requests.',
+    }
+  }
+
+  // 13. Out of Scope / Off-Topic Guardrail
+  if (/(weather|joke|poem|recipe|sports|crypto|bitcoin|song|movie|football|cricket|stock\s*market)\b/i.test(lower)) {
+    return {
+      text: 'I specialize in CarbonBridge industrial carbon workflows (identifying recoverable emissions, matching marketplace CO₂ supply, and staging verified trade transactions). I cannot assist with general topics, but I am ready to help with your industrial carbon requirements or listings.',
     }
   }
 
