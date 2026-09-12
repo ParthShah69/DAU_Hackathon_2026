@@ -69,6 +69,8 @@ test('register supplier, login, and read me via Bearer token', async () => {
     body: { email: 'kiln@example.com', password: 'secure-pass-2026' },
     expectedStatus: 200
   });
+  assert.equal(login.data.organization.kind, 'supplier');
+  assert.ok(login.data.membership.roles.includes('supplier_editor'));
   const me = await request('/api/v1/me', { token: login.data.session.token });
   assert.equal(me.data.user.email, 'kiln@example.com');
   assert.equal(me.data.organizationKind, 'supplier');
@@ -99,6 +101,21 @@ test('public buyer demand lets a seller offer privately and either party can pau
   assert.equal(paused.data.status, 'paused');
   const message = await request(`/api/v1/negotiations/${offer.data.id}/messages`, { method: 'POST', user: 'user-seller', body: { message: 'This should not be sent.' }, expectedStatus: 409 });
   assert.equal(message.data.error.code, 'CONFLICT');
+});
+
+test('facility assessment separates operational emissions from buyer demand and returns ranked actions', async () => {
+  const assessment = await request('/api/v1/emissions-assessment', { user: 'user-seller' });
+  assert.equal(assessment.data.role, 'supplier');
+  assert.equal(assessment.data.emissions.scope1ProcessTonnes, 12400);
+  assert.equal(assessment.data.emissions.scope2ElectricityTonnes, 2240);
+  assert.ok(assessment.data.emissions.intensityTonnesPerProduct > 0);
+  assert.ok(assessment.data.marketContext.excessCapturedTonnes > 0);
+  assert.ok(assessment.data.actions.some((action) => /electricity/i.test(action.title)));
+  assert.ok(assessment.data.actions.some((action) => /exceeds current marketplace demand/i.test(action.rationale)));
+
+  const buyer = await request('/api/v1/emissions-assessment', { user: 'user-buyer' });
+  assert.equal(buyer.data.role, 'buyer');
+  assert.match(buyer.data.actions[0].rationale, /electricity/i);
 });
 
 test('document metadata is private to the applicant and platform admins can review it with comments', async () => {
@@ -165,7 +182,7 @@ test('role-based onboarding gates publication and supports a multi-capability co
   const profile = await request('/api/v1/organization-profile', { token });
   assert.equal(profile.data.ready, false);
   const saved = await request('/api/v1/organization-profile', { method: 'PATCH', token, body: {
-    organizationName: 'Impact Foundry', contactEmail: 'mira@impact.example', legalEntityType: 'Private limited', industry: 'Construction', facilityLocation: 'Pune', annualCaptureEstimate: '400', availableQuantity: '30', supplyFrequency: 'monthly', sourceProcess: 'cement capture', purity: '99.5', form: 'liquid', annualEmissions: '1400', emissionsGap: '380', sustainabilityBudget: '900000', contributionType: 'mixed'
+    organizationName: 'Impact Foundry', contactEmail: 'mira@impact.example', legalEntityType: 'Private limited', industry: 'Construction', facilityLocation: 'Pune', annualProductionTonnes: '6000', annualProcessCo2Tonnes: '1200', annualFuelCo2Tonnes: '200', annualElectricityKwh: '500000', annualCaptureEstimate: '400', availableQuantity: '30', supplyFrequency: 'monthly', sourceProcess: 'cement capture', purity: '99.5', form: 'liquid', annualEmissions: '1400', emissionsGap: '380', sustainabilityBudget: '900000', contributionType: 'mixed'
   } });
   assert.equal(saved.data.ready, true);
   const submitted = await request('/api/v1/organization-profile/submit', { method: 'POST', token, body: {} });

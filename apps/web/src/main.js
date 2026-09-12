@@ -9,6 +9,7 @@ import {
   createRequirement,
   requestAction,
   listDemoActors,
+  getEmissionsAssessment,
   registerAccount,
   loginAccount,
   logoutAccount,
@@ -16,6 +17,8 @@ import {
   persistDemoActor,
   clearSession,
   clearDemoActor,
+  saveLocalWorkspace,
+  getLocalWorkspace,
   hasChosenDemoActor,
   hasActiveSession,
   getSessionToken,
@@ -117,6 +120,7 @@ const fallbackNegotiations = [
 const fallbackDemands = [
   { id: 'requirement-demo', name: 'October concrete curing requirement', quantityTonnes: '100', minimumPurityMolPct: '95', acceptableForms: ['gas'], periodStart: '2026-10-01', periodEnd: '2026-10-31', synthetic: true, buyer: { id: 'org-greenbuild', name: 'GreenBuild Concrete', kind: 'buyer', verificationStatus: 'verified', details: { industry: 'Low-carbon concrete manufacturing', facilityLocation: 'Rajkot, Gujarat', requiredAmount: '100 tonnes/month', deliveryLocation: 'Rajkot curing facility' } } }
 ]
+const fallbackAssessment = { role: 'supplier', methodology: 'Synthetic demo planning estimate: Scope 1 process + fuel, Scope 2 electricity. Not a verified inventory.', emissions: { scope1ProcessTonnes: 12400, scope1FuelTonnes: 1800, scope2ElectricityTonnes: 2240, totalTonnes: 16440, intensityTonnesPerProduct: 1.096, electricityKwh: 3200000 }, marketContext: { annualCapturedTonnes: 8400, visibleBuyerDemandTonnes: 100, averageBuyerRequestTonnes: 100, excessCapturedTonnes: 8300 }, confidence: { score: 100, level: 'high' }, actions: [{ priority: 1, title: 'Cut electricity intensity first', rationale: 'Electricity use is a material source in this demo facility. Meter compressors, motors and heat systems by line before selecting improvements.', estimatedReductionTonnes: 179, evidenceNeeded: '12 monthly electricity bills or meter exports' }, { priority: 2, title: 'Optimize the emissions-generating process', rationale: 'Process CO₂ remains the largest source. Review operating set points, feedstock and capture efficiency; utilization alone is not a reduction.', estimatedReductionTonnes: 744, evidenceNeeded: 'Process meter or mass-balance records' }, { priority: 3, title: 'Do not treat excess captured CO₂ as a reduction', rationale: 'Captured CO₂ exceeds current buyer demand. Aggregate demand and prioritize upstream operational reduction.', estimatedReductionTonnes: 0, evidenceNeeded: 'Capture meter and delivery records' }] }
 
 const processSteps = [
   ['01', 'Capture', 'Process gas collected at the stack or separator', 'input'],
@@ -133,6 +137,7 @@ const pathForView = {
   requests: '/requests',
   evidence: '/evidence',
   reports: '/reports',
+  reduction: '/reduction-plan',
   assistant: '/assistant',
   projects: '/projects',
   balance: '/balance',
@@ -173,7 +178,7 @@ const state = {
   selectedRequestId: null,
   matchRun: null,
   reportGenerated: false,
-  data: { listings: [], demands: [], requirements: [], requests: [], capabilities: null, processes: [], dashboard: null, activity: [], projects: [], balanceRequests: [], participations: [], appreciations: [], profile: null, verificationQueue: [], negotiations: [], me: null },
+  data: { listings: [], demands: [], requirements: [], requests: [], capabilities: null, processes: [], dashboard: null, activity: [], projects: [], balanceRequests: [], participations: [], appreciations: [], profile: null, assessment: null, verificationQueue: [], negotiations: [], me: null },
   live: { status: isDemoMode ? 'demo' : 'connecting', error: null },
   auth: { unlocked: hasActiveSession() || hasChosenDemoActor(), tab: 'login', error: '', form: { displayName: '', email: '', password: '', organizationName: '', organizationKind: 'supplier', city: '' } },
   demoActors: fallbackDemoActors.slice(),
@@ -191,6 +196,7 @@ function viewFromPath(pathname = globalThis.location?.pathname || '/') {
   if (pathname.startsWith('/requests')) return 'requests'
   if (pathname.startsWith('/evidence')) return 'evidence'
   if (pathname.startsWith('/reports')) return 'reports'
+  if (pathname.startsWith('/reduction-plan')) return 'reduction'
   if (pathname.startsWith('/projects')) return 'projects'
   if (pathname.startsWith('/balance')) return 'balance'
   if (pathname.startsWith('/appreciation')) return 'appreciation'
@@ -307,6 +313,7 @@ function navItems() {
   items.push(['marketplace', 'Marketplace', '⌁', 'Trade'])
   if (kind === 'buyer') items.push(['requirements', 'Buyer needs', '◎'])
   if (kind === 'contributor') items.push(['projects', 'Environmental projects', '▣', 'Impact'])
+  items.push(['reduction', 'Climate plan', '↓', 'Impact'])
   items.push(['requests', 'Requests', '↗'])
   items.push(['negotiations', 'Negotiations', '↔'])
   items.push(['assistant', 'Assistant', '✦'])
@@ -478,6 +485,7 @@ function applyWorkspace(workspace) {
   state.data.participations = workspace?.participations || []
   state.data.appreciations = workspace?.appreciations || []
   state.data.profile = workspace?.profile || null
+  state.data.assessment = workspace?.assessment || null
   state.data.negotiations = workspace?.negotiations || []
   // New workspaces must provide their operating details before they can publish
   // or request verification. Submitted/verified workspaces should not be sent
@@ -535,6 +543,7 @@ async function hydrate() {
     state.live.status = 'demo'
     state.data.listings = fallbackListingRecords.map((record) => mapListing(record))
     state.data.demands = fallbackDemands.slice()
+    state.data.assessment = fallbackAssessment
     state.data.negotiations = fallbackNegotiations
     seedAssistantGreeting()
     render()
@@ -558,6 +567,7 @@ async function hydrate() {
     state.live.error = error.message
     state.data.listings = fallbackListingRecords.map((record) => mapListing(record))
     state.data.demands = fallbackDemands.slice()
+    state.data.assessment = fallbackAssessment
     state.data.negotiations = fallbackNegotiations
     setNotice(`Live API unavailable. Showing degraded demo data. ${error.message}`)
   }
@@ -1041,6 +1051,7 @@ async function submitAuth(kind, form) {
         return
       }
       if (isDemoMode) {
+        saveLocalWorkspace(payload)
         persistSession({ token: `local-${Date.now()}`, user: { displayName: payload.displayName, email: payload.email } })
         state.data.me = { user: { displayName: payload.displayName, email: payload.email }, currentOrganization: { name: payload.organizationName, kind: payload.organizationKind, capabilities: [payload.organizationKind] }, memberships: [], capabilities: [payload.organizationKind === 'ngo' ? 'reviewer' : payload.organizationKind === 'buyer' ? 'buyer_editor' : 'supplier_editor'], session: { local: true } }
         state.auth.unlocked = true
@@ -1061,11 +1072,14 @@ async function submitAuth(kind, form) {
       return
     }
     if (isDemoMode) {
-      persistSession({ token: `local-${Date.now()}`, user: { displayName: email.split('@')[0], email } })
-      state.data.me = { user: { displayName: email.split('@')[0], email }, currentOrganization: { name: 'Local workspace', kind: 'buyer', capabilities: ['buyer'] }, memberships: [], capabilities: ['buyer_editor'], session: { local: true } }
+      const workspace = getLocalWorkspace(email)
+      if (!workspace) { state.auth.error = 'No browser-demo workspace exists for this email. Register it in this browser or use a demo workspace.'; return }
+      const editorRole = workspace.organizationKind === 'supplier' ? 'supplier_editor' : workspace.organizationKind === 'ngo' ? 'ngo_editor' : workspace.organizationKind === 'contributor' ? 'contributor_editor' : 'buyer_editor'
+      persistSession({ token: `local-${Date.now()}`, user: { displayName: workspace.displayName || email.split('@')[0], email } })
+      state.data.me = { user: { displayName: workspace.displayName || email.split('@')[0], email }, currentOrganization: { name: workspace.organizationName || 'Local workspace', kind: workspace.organizationKind, capabilities: [workspace.organizationKind] }, memberships: [], capabilities: [editorRole], session: { local: true } }
       state.auth.unlocked = true
       seedAssistantGreeting()
-      setNotice('Signed in locally. Demo mode has no password server.')
+      setNotice(`Signed in to your ${kindLabel(workspace.organizationKind).toLowerCase()} browser-demo workspace.`)
       return
     }
     const result = await loginAccount({ email, password })
@@ -1175,15 +1189,17 @@ function onboardingPanel() {
   const who = identity()
   const profile = state.data.profile || { data: {}, percent: 0, verificationStatus: 'draft' }
   const fieldsByKind = {
-    supplier: [['legalEntityType', 'Legal entity type'], ['industry', 'Industry / sector'], ['facilityLocation', 'Facility location'], ['annualCaptureEstimate', 'Annual CO₂ capture estimate (t)'], ['availableQuantity', 'Available quantity for sale (t)'], ['supplyFrequency', 'Supply frequency'], ['sourceProcess', 'CO₂ source / process'], ['purity', 'Purity (%)'], ['form', 'Phase / form']],
-    buyer: [['industry', 'Industry / use case'], ['facilityLocation', 'Facility location'], ['requiredAmount', 'Required CO₂ amount (t)'], ['requiredFrequency', 'Required frequency'], ['minimumPurity', 'Minimum purity (%)'], ['requiredForm', 'Required phase / form'], ['deliveryLocation', 'Delivery location']],
-    ngo: [['registrationNumber', 'Legal registration number'], ['mission', 'Mission'], ['operationalRegions', 'Operational regions'], ['projectCategory', 'Project category'], ['fundingRequirement', 'Funding requirement']],
+    supplier: [['legalEntityType', 'Legal entity type'], ['industry', 'Industry / sector'], ['facilityLocation', 'Facility location'], ['annualProductionTonnes', 'Annual production (tonnes)'], ['annualProcessCo2Tonnes', 'Annual process CO₂ (tCO₂e)'], ['annualFuelCo2Tonnes', 'Annual fuel CO₂ (tCO₂e)'], ['annualElectricityKwh', 'Annual electricity used (kWh)'], ['gridEmissionFactorKgPerKwh', 'Grid factor (kgCO₂e/kWh, optional)'], ['annualCapturedCo2Tonnes', 'Annual captured CO₂ (t)'], ['annualCaptureEstimate', 'Annual CO₂ capture estimate (t)'], ['availableQuantity', 'Available quantity for sale (t)'], ['supplyFrequency', 'Supply frequency'], ['sourceProcess', 'CO₂ source / process'], ['purity', 'Purity (%)'], ['form', 'Phase / form']],
+    buyer: [['industry', 'Industry / use case'], ['facilityLocation', 'Facility location'], ['annualProductionTonnes', 'Annual production (tonnes)'], ['annualElectricityKwh', 'Annual electricity used (kWh)'], ['requiredAmount', 'Required CO₂ amount (t)'], ['requiredFrequency', 'Required frequency'], ['minimumPurity', 'Minimum purity (%)'], ['requiredForm', 'Required phase / form'], ['deliveryLocation', 'Delivery location']],
+    ngo: [['registrationNumber', 'Legal registration number'], ['mission', 'Mission'], ['operationalRegions', 'Operational regions'], ['projectCategory', 'Project category'], ['fundingRequirement', 'Funding requirement'], ['projectBaselineTonnes', 'Project baseline (tCO₂e/year)'], ['expectedAnnualReductionTonnes', 'Expected annual reduction (tCO₂e)']],
     contributor: [['industry', 'Industry'], ['annualEmissions', 'Annual emissions estimate (tCO₂e)'], ['emissionsGap', 'Current emissions-reduction gap (tCO₂e)'], ['sustainabilityBudget', 'Sustainability budget (₹)'], ['contributionType', 'Preferred contribution type']]
   }
   const fields = fieldsByKind[who.kind] || fieldsByKind.buyer
   const steps = ['Organization', 'Operating details', 'Documents & review']
   const step = Math.min(Math.max(state.onboardingStep || 0, 0), steps.length - 1)
-  const detailFields = fields.map(([name, label]) => `<label class="field-label" for="onboard-${name}">${label}</label><input id="onboard-${name}" name="${name}" required value="${escapeHtml(profile.data?.[name] || '')}" />`).join('')
+  const optional = new Set(['gridEmissionFactorKgPerKwh'])
+  const numeric = /(?:Tonnes|Kwh|Factor|Purity|Amount|Budget)/
+  const detailFields = fields.map(([name, label]) => `<label class="field-label" for="onboard-${name}">${label}</label><input id="onboard-${name}" name="${name}" ${numeric.test(name) ? 'type="number" min="0" step="any"' : ''} ${optional.has(name) ? '' : 'required'} value="${escapeHtml(profile.data?.[name] || '')}" />`).join('')
   return overlayPanel('onboarding', 'Set up your organization', `<div class="onboarding-progress"><strong>${profile.percent || 0}% profile complete</strong><span><i style="width:${profile.percent || 0}%"></i></span><small>Step ${step + 1} of ${steps.length}. A CarbonBridge administrator reviews your application after you submit it.</small></div><ol class="onboarding-steps">${steps.map((label, index) => `<li class="${index === step ? 'active' : index < step ? 'done' : ''}"><span>${index < step ? '✓' : index + 1}</span>${label}</li>`).join('')}</ol><form class="onboarding-form stacked-form"><input type="hidden" name="organizationName" value="${escapeHtml(who.organizationName)}" /><section class="onboarding-step ${step === 0 ? 'active' : ''}" ${step === 0 ? '' : 'hidden'}><p class="field-hint">Tell us who is responsible for this ${escapeHtml(kindLabel(who.kind).toLowerCase())} workspace.</p><label class="field-label" for="onboard-email">Authorized contact email</label><input id="onboard-email" name="contactEmail" type="email" required value="${escapeHtml(profile.data?.contactEmail || who.email)}" /><label class="field-label" for="onboard-signatory">Authorized signatory</label><input id="onboard-signatory" name="authorizedSignatory" required value="${escapeHtml(profile.data?.authorizedSignatory || '')}" placeholder="Full name and position" /><label class="field-label" for="onboard-phone">Contact phone</label><input id="onboard-phone" name="contactPhone" required value="${escapeHtml(profile.data?.contactPhone || '')}" placeholder="Country code and number" /></section><section class="onboarding-step ${step === 1 ? 'active' : ''}" ${step === 1 ? '' : 'hidden'}>${detailFields}</section><section class="onboarding-step ${step === 2 ? 'active' : ''}" ${step === 2 ? '' : 'hidden'}><p class="field-hint">Add the document names and reference details the administrator should review. File content is sent only when a document-upload API is configured; this demo safely records metadata.</p><div class="document-metadata"><label class="field-label" for="onboard-doc-1">Document 1</label><input id="onboard-doc-1" name="document1Name" required value="${escapeHtml(profile.data?.document1Name || '')}" placeholder="e.g. Certificate of incorporation" /><input name="document1Reference" value="${escapeHtml(profile.data?.document1Reference || '')}" placeholder="Document number or issue date" /><label class="field-label" for="onboard-doc-2">Document 2</label><input id="onboard-doc-2" name="document2Name" required value="${escapeHtml(profile.data?.document2Name || '')}" placeholder="e.g. GST / legal registration" /><input name="document2Reference" value="${escapeHtml(profile.data?.document2Reference || '')}" placeholder="Document number or issue date" /><label class="field-label" for="onboard-doc-3">Supporting evidence</label><input id="onboard-doc-3" name="document3Name" value="${escapeHtml(profile.data?.document3Name || '')}" placeholder="e.g. Latest quality test report" /><input name="document3Reference" value="${escapeHtml(profile.data?.document3Reference || '')}" placeholder="Report date or reference" /></div><label class="check-row"><input type="checkbox" name="declarationAccepted" value="yes" ${profile.data?.declarationAccepted === 'yes' ? 'checked' : ''} required /> I confirm these details are accurate and I am authorized to submit them.</label></section><div class="editor-footer">${step > 0 ? '<button type="button" class="text-button" data-action="onboarding-back">Back</button>' : ''}${step < steps.length - 1 ? '<button type="button" class="button button-dark" data-action="onboarding-next">Continue</button>' : `<button type="submit" class="button button-dark">Save profile</button><button type="submit" name="submitForReview" value="yes" class="outlined-button">Submit for admin review</button>`}</div></form>`)
 }
 
@@ -1396,6 +1412,17 @@ function reportsView() {
     ${ready && dashboard ? `<section class="panel"><div class="panel-title"><div><span class="eyebrow">Generated report</span><h3>Workspace snapshot</h3></div></div><pre class="report-json">${escapeHtml(JSON.stringify(dashboard, null, 2))}</pre></section>` : ''}`
 }
 
+function reductionView() {
+  const assessment = state.data.assessment
+  if (!assessment) return `${intro('Impact · Facility baseline', 'Reduction plan', 'Connect the live API and complete production, process, fuel, and electricity details to generate an evidence-based facility plan.')}<section class="panel empty-state"><p>No facility assessment is available in this browser-only demo.</p></section>`
+  const emissions = assessment.emissions || {}
+  const market = assessment.marketContext || {}
+  return `${intro('Impact · Facility baseline', 'Reduction plan', 'Recommendations are calculated from your reported activity data and current buyer demand. They are planning estimates, not verified carbon claims.')}
+    <section class="metric-grid">${metric('Total operational estimate', emissions.totalTonnes === undefined ? '—' : `${emissions.totalTonnes} tCO₂e`, 'Scope 1 + electricity estimate', '◌', 'purple')}${metric('Electricity emissions', emissions.scope2ElectricityTonnes === undefined ? '—' : `${emissions.scope2ElectricityTonnes} tCO₂e`, `${emissions.electricityKwh || 0} kWh reported`, '⚡', 'gold')}${metric('Emissions intensity', emissions.intensityTonnesPerProduct === null || emissions.intensityTonnesPerProduct === undefined ? 'Add production' : `${emissions.intensityTonnesPerProduct} t/t`, 'Per tonne of product', '▥', 'blue')}${metric('Data confidence', `${assessment.confidence?.score || 0}%`, `${readableStatus(assessment.confidence?.level)} evidence completeness`, '✓', 'green')}</section>
+    <section class="panel"><div class="panel-title"><div><span class="eyebrow">Market context</span><h3>Captured CO₂ is not automatically a reduction</h3></div></div><div class="listing-facts"><span><b>Captured</b>${market.annualCapturedTonnes ?? '—'} t/year</span><span><b>Buyer demand</b>${market.visibleBuyerDemandTonnes ?? '—'} t</span><span><b>Average request</b>${market.averageBuyerRequestTonnes ?? '—'} t</span><span><b>Unallocated capture</b>${market.excessCapturedTonnes ?? '—'} t</span></div></section>
+    <section class="panel"><div class="panel-title"><div><span class="eyebrow">Ranked actions</span><h3>What to do next</h3></div></div><p class="muted">${escapeHtml(assessment.methodology || '')}</p><div class="activity-list">${(assessment.actions || []).map((action) => `<article class="activity-row"><span class="activity-icon green">${action.priority}</span><div><strong>${escapeHtml(action.title)}</strong><span>${escapeHtml(action.rationale)}</span><small>${action.estimatedReductionTonnes === null ? 'Reduction estimate needs more data' : action.estimatedReductionTonnes ? `Planning potential: ~${action.estimatedReductionTonnes} tCO₂e/year` : 'No reduction claim from this action alone'} · Evidence: ${escapeHtml(action.evidenceNeeded)}</small></div></article>`).join('')}</div></section>`
+}
+
 function ngoDisclaimer() {
   return `<div class="ngo-disclaimer"><strong>Not an offset.</strong> NGO support is labor (planting / greening), funding, or appreciation. It does not retire carbon credits and must not be treated as an offset.</div>`
 }
@@ -1488,6 +1515,7 @@ function renderView() {
   if (state.view === 'requests') return requestsView()
   if (state.view === 'evidence') return evidenceView()
   if (state.view === 'reports') return reportsView()
+  if (state.view === 'reduction') return reductionView()
   if (state.view === 'assistant') return assistantView()
   if (state.view === 'projects') return projectsView()
   if (state.view === 'balance') return balanceView()

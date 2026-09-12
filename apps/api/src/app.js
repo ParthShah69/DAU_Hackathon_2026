@@ -17,6 +17,7 @@ const onboarding = require('./domain/onboarding');
 const verificationDocuments = require('./domain/verification-documents');
 const negotiations = require('./domain/negotiations');
 const marketplaceDemands = require('./domain/marketplace-demands');
+const emissionsAssessment = require('./domain/emissions-assessment');
 const {
   addParticipation,
   listParticipations: listExtensionParticipations,
@@ -311,6 +312,10 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       if (request.method === 'POST' && path === '/api/v1/organization-profile/submit') {
         requireRole(actor, ['org_admin']);
         jsonResponse(response, 200, onboarding.submitProfile(store, actor), requestId, request);
+        return;
+      }
+      if (request.method === 'GET' && path === '/api/v1/emissions-assessment') {
+        jsonResponse(response, 200, emissionsAssessment.getAssessment(store, actor), requestId, request);
         return;
       }
       if (request.method === 'GET' && path === '/api/v1/organization-documents') {

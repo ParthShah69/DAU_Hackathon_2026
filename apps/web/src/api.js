@@ -11,6 +11,7 @@ const queryConfig = typeof globalThis.location === 'undefined' ? new URLSearchPa
 export const SESSION_STORAGE_KEY = 'carbonbridge.session'
 export const DEMO_USER_STORAGE_KEY = 'carbonbridge.demoUser'
 export const DEMO_ORG_STORAGE_KEY = 'carbonbridge.demoOrganization'
+export const LOCAL_WORKSPACES_STORAGE_KEY = 'carbonbridge.localWorkspaces'
 
 export const apiBaseUrl = String(runtimeConfig.apiBaseUrl || queryConfig.get('api') || '').replace(/\/$/, '')
 export const isDemoMode = runtimeConfig.mode === 'demo' || apiBaseUrl.length === 0
@@ -212,8 +213,30 @@ export async function getDashboard() {
   return apiRequest('/dashboard')
 }
 
+function localWorkspaces() {
+  try {
+    const value = JSON.parse(readStorage(LOCAL_WORKSPACES_STORAGE_KEY) || '{}')
+    return value && typeof value === 'object' ? value : {}
+  } catch { return {} }
+}
+
+export function saveLocalWorkspace(workspace) {
+  const email = String(workspace?.email || '').trim().toLowerCase()
+  if (!email) return
+  const saved = localWorkspaces()
+  saved[email] = { email, displayName: String(workspace.displayName || ''), organizationName: String(workspace.organizationName || ''), organizationKind: String(workspace.organizationKind || 'buyer') }
+  writeStorage(LOCAL_WORKSPACES_STORAGE_KEY, JSON.stringify(saved))
+}
+
+export function getLocalWorkspace(email) {
+  return localWorkspaces()[String(email || '').trim().toLowerCase()] || null
+}
+
 export async function getOrganizationProfile() {
   return apiRequest('/organization-profile')
+}
+export async function getEmissionsAssessment() {
+  return apiRequest('/emissions-assessment')
 }
 
 export async function saveOrganizationProfile(payload) {
@@ -317,7 +340,7 @@ export async function createAppreciation(payload) {
 
 export async function loadWorkspace(listingFilters = {}) {
   const empty = []
-  const [listings, demands, requirements, requests, capabilities, processes, me, dashboard, activity, projects, balanceRequests, participations, appreciations, profile, negotiations] = await Promise.all([
+  const [listings, demands, requirements, requests, capabilities, processes, me, dashboard, activity, projects, balanceRequests, participations, appreciations, profile, assessment, negotiations] = await Promise.all([
     optionalRequest(`/marketplace/listings${queryString({ state: 'published', ...listingFilters })}`),
     optionalRequest('/marketplace/demands'),
     optionalRequest('/requirements'),
@@ -332,6 +355,7 @@ export async function loadWorkspace(listingFilters = {}) {
     optionalRequest('/participations'),
     optionalRequest('/appreciations'),
     optionalRequest('/organization-profile'),
+    optionalRequest('/emissions-assessment'),
     optionalRequest('/negotiations'),
   ])
   return {
@@ -349,6 +373,7 @@ export async function loadWorkspace(listingFilters = {}) {
     participations: asItems(participations),
     appreciations: asItems(appreciations),
     profile: profile || null,
+    assessment: assessment || null,
     negotiations: asItems(negotiations),
     empty,
   }
