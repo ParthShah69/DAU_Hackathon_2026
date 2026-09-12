@@ -34,8 +34,8 @@
     { "id": "org-rivera", "name": "Rivera Foods & Beverages", "kind": "contributor", "capabilities": ["contributor"], "synthetic": true, "status": "active" }
   ],
   "organizationProfiles": [
-    { "id": "profile-carbonstone", "organizationId": "org-carbonstone", "data": { "organizationName": "CarbonStone Materials" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true },
-    { "id": "profile-greenbuild", "organizationId": "org-greenbuild", "data": { "organizationName": "GreenBuild Concrete" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true },
+    { "id": "profile-carbonstone", "organizationId": "org-carbonstone", "data": { "organizationName": "CarbonStone Materials", "industry": "Cement and construction materials", "facilityLocation": "Ahmedabad, Gujarat", "annualCaptureEstimate": "8,400", "availableQuantity": "280 tonnes/month", "supplyFrequency": "Monthly", "sourceProcess": "Kiln exhaust capture and purification", "purity": "96.5–98.2%", "form": "Compressed gas" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true },
+    { "id": "profile-greenbuild", "organizationId": "org-greenbuild", "data": { "organizationName": "GreenBuild Concrete", "industry": "Low-carbon concrete manufacturing", "facilityLocation": "Rajkot, Gujarat", "requiredAmount": "100 tonnes/month", "requiredFrequency": "Monthly", "minimumPurity": "95%", "requiredForm": "Gas", "deliveryLocation": "Rajkot curing facility" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true },
     { "id": "profile-climateworks", "organizationId": "org-climateworks", "data": { "organizationName": "ClimateWorks Collective" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true },
     { "id": "profile-rivera", "organizationId": "org-rivera", "data": { "organizationName": "Rivera Foods & Beverages" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true }
   ],

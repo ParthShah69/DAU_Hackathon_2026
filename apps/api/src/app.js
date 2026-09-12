@@ -16,6 +16,7 @@ const ngo = require('./domain/ngo');
 const onboarding = require('./domain/onboarding');
 const verificationDocuments = require('./domain/verification-documents');
 const negotiations = require('./domain/negotiations');
+const marketplaceDemands = require('./domain/marketplace-demands');
 const {
   addParticipation,
   listParticipations: listExtensionParticipations,
@@ -391,6 +392,28 @@ function createApp({ store = new Store(), persistence = null } = {}) {
       if (request.method === 'POST' && negotiationMessageMatch) {
         requireRole(actor, ['org_admin', 'buyer_editor', 'supplier_editor']);
         jsonResponse(response, 201, negotiations.addMessage(store, actor, negotiationMessageMatch[1], await readJson(request)), requestId, request);
+        return;
+      }
+      const negotiationPauseMatch = path.match(/^\/api\/v1\/negotiations\/([^/]+)\/pause$/);
+      if (request.method === 'POST' && negotiationPauseMatch) {
+        requireRole(actor, ['org_admin', 'buyer_editor', 'supplier_editor']);
+        jsonResponse(response, 200, negotiations.pauseThread(store, actor, negotiationPauseMatch[1]), requestId, request);
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/api/v1/marketplace/demands') {
+        jsonResponse(response, 200, { items: marketplaceDemands.listPublicDemands(store, actor) }, requestId, request);
+        return;
+      }
+      const demandOfferMatch = path.match(/^\/api\/v1\/marketplace\/demands\/([^/]+)\/offers$/);
+      if (request.method === 'POST' && demandOfferMatch) {
+        requireRole(actor, ['org_admin', 'supplier_editor']);
+        jsonResponse(response, 201, marketplaceDemands.offerOnDemand(store, actor, demandOfferMatch[1], await readJson(request)), requestId, request);
+        return;
+      }
+      const publicOrganizationMatch = path.match(/^\/api\/v1\/marketplace\/organizations\/([^/]+)$/);
+      if (request.method === 'GET' && publicOrganizationMatch) {
+        jsonResponse(response, 200, marketplaceDemands.publicOrganization(store, publicOrganizationMatch[1]), requestId, request);
         return;
       }
 

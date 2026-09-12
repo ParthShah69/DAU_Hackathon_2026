@@ -76,6 +76,31 @@ test('register supplier, login, and read me via Bearer token', async () => {
   assert.equal(me.data.session.method, 'session');
 });
 
+test('public buyer demand lets a seller offer privately and either party can pause the thread', async () => {
+  const demands = await request('/api/v1/marketplace/demands', { user: 'user-seller' });
+  const demand = demands.data.items.find((item) => item.id === 'requirement-demo');
+  assert.equal(demand.buyer.name, 'GreenBuild Concrete');
+  assert.equal(demand.buyer.details.contactEmail, undefined);
+
+  const organization = await request('/api/v1/marketplace/organizations/org-greenbuild', { user: 'user-seller' });
+  assert.equal(organization.data.details.deliveryLocation, 'Rajkot curing facility');
+  assert.equal(organization.data.details.contactPhone, undefined);
+
+  const offer = await request('/api/v1/marketplace/demands/requirement-demo/offers', {
+    method: 'POST', user: 'user-seller',
+    body: { quantity: '75', purity: '98%', priceBasis: '₹2,100/t delivered', delivery: 'Road tanker', message: 'October capacity is available.' }, expectedStatus: 201
+  });
+  const buyerThreads = await request('/api/v1/negotiations', { user: 'user-buyer' });
+  assert.ok(buyerThreads.data.items.some((item) => item.id === offer.data.id));
+  const ngoThreads = await request('/api/v1/negotiations', { user: 'user-reviewer' });
+  assert.equal(ngoThreads.data.items.some((item) => item.id === offer.data.id), false);
+
+  const paused = await request(`/api/v1/negotiations/${offer.data.id}/pause`, { method: 'POST', user: 'user-buyer' });
+  assert.equal(paused.data.status, 'paused');
+  const message = await request(`/api/v1/negotiations/${offer.data.id}/messages`, { method: 'POST', user: 'user-seller', body: { message: 'This should not be sent.' }, expectedStatus: 409 });
+  assert.equal(message.data.error.code, 'CONFLICT');
+});
+
 test('document metadata is private to the applicant and platform admins can review it with comments', async () => {
   const registered = await request('/api/v1/auth/register', {
     method: 'POST',
