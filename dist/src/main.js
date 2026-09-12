@@ -1756,13 +1756,15 @@ function assistantResponse(text) {
     }
   }
 
-  // 5. Requirements (e.g. "Create a requirement for 100 tonnes in October 2026", "I need CO2", or multi-turn follow-ups)
+  // 5. Requirements (e.g. "Create a requirement for 100 tonnes in October 2026", "I want to buy CO2", or multi-turn follow-ups)
   const isRequirementIntent =
     lower.includes('requirement') ||
-    (lower.includes('need') && (lower.includes('co2') || lower.includes('gas') || lower.includes('carbon'))) ||
+    /(\b(need|want|source|acquire|order|procure)\b.*\b(co2|gas|carbon)\b)/i.test(lower) ||
+    /(\b(co2|gas|carbon)\b.*\b(need|want|source|acquire|order|procure)\b)/i.test(lower) ||
+    /\b(buy|buying|purchase|purchasing|procure|procuring)\b/i.test(lower) ||
     lower.includes('looking for') ||
-    lower.includes('buying') ||
-    (state.awaitingRequirement && (extractQuantity(lower) !== null || extractPeriod(lower)))
+    (state.awaitingRequirement && (extractQuantity(lower) !== null || extractPeriod(lower))) ||
+    (extractQuantity(lower) !== null && extractPeriod(lower) && !/(supply|supplier|option|match|compare|deal|find\s+options?)/i.test(lower))
 
   if (isRequirementIntent) {
     const rawQty = extractQuantity(lower)
