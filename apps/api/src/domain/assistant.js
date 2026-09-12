@@ -61,7 +61,8 @@ function addMessage(store, conversation, role, content, metadata = {}) {
 }
 
 function detectIntent(text, context = {}) {
-  const normalized = text.toLowerCase();
+  const stripped = String(text || '').trim().replace(/^["'“‘\[(]+|["'”’\])]+$/g, '').trim();
+  const normalized = stripped.toLowerCase();
   if (
     /\b(system\s*override|drop\s*table|execute\s*sql|select\s*\*|insert\s*into|delete\s*from|union\s*select|sql\b)/i.test(normalized) ||
     /\b(ignore\s*(all\s*)?(previous|prior)\s*instructions|disregard\s*(all\s*)?(previous|prior)|jailbreak)\b/i.test(normalized) ||
@@ -72,15 +73,22 @@ function detectIntent(text, context = {}) {
     return 'security_violation';
   }
   if (/^(yes|y|confirm|approve|approved|go ahead|do it|proceed|okay|ok)\b/.test(normalized)) return 'confirm_action';
-  if (/\b(cancel|stop|never mind|discard)\b/.test(normalized)) return 'cancel_action';
+  if (/\b(cancel|stop|never\s*mind|discard|abort)\b/.test(normalized)) return 'cancel_action';
   if (/(compare|side by side|which (one|option)|best deal|cheapest)/.test(normalized)) return 'compare_options';
-  if (/\b(find|search|match|source|available|show|list|get|see)\b/.test(normalized) && /\b(co2|carbon|tonne|ton|requirement|listing|listings|option|options|supplier|suppliers|buyer|buyers|material|deal|deals|supply)\b/.test(normalized)) return 'find_matches';
+  if (
+    (/\b(find|search|match|source|available|show|list|get|see)\b/.test(normalized) && /\b(co2|carbon|tonne|ton|requirement|listing|listings|option|options|supplier|suppliers|buyer|buyers|material|deal|deals|supply)\b/.test(normalized)) ||
+    /(show|view|browse|what).*listing/i.test(normalized)
+  ) return 'find_matches';
   if (/(accept|decline|reject).*\brequest\b/.test(normalized)) return 'manage_request';
-  if (/(\brequest\b|\breserve\b|send.*supplier|\bbuy\b|\bpurchase\b)/.test(normalized)) return 'prepare_request';
+  if (
+    /(\brequest\b|\breserve\b|send.*supplier|\bbuy\b|\bpurchase\b)/.test(normalized) ||
+    /\b(select|choose|pick|want)\s+(the\s+)?(first|second|third|1st|2nd|3rd|option\s*[123])\b/i.test(normalized) ||
+    /^(option\s*[123])$/i.test(normalized)
+  ) return 'prepare_request';
   if (/(requirement|we need|looking for|need \d|buying)/.test(normalized)) return 'create_requirement';
   if (context?.draftRequirement && (parsePeriod(normalized) || parseQuantity(normalized))) return 'create_requirement';
-  if (/(list|publish|sell|marketplace|offer|draft)/.test(normalized) && /(process|output|co2|carbon|stream|material|listing)/.test(normalized)) return 'prepare_listing';
-  if (/(process|produce|production|manufactur|generate|byproduct|waste|output|what can i sell|valuable)/.test(normalized)) return 'discover_process_outputs';
+  if (/(create|draft|prepare|new|publish|sell|offer)\s+(a\s*)?(listing|draft|offer)\b/i.test(normalized) || (/(list|publish|sell|marketplace|offer|draft)/.test(normalized) && /(process|output|co2|carbon|stream|material|listing)/.test(normalized))) return 'prepare_listing';
+  if (/(process|produce|production|manufactur|generate|byproduct|waste|output|what can i sell|valuable|plant|cement|flue\s*gas|kiln|boiler|exhaust|emission|capture|refinery|brewery|factory)/.test(normalized)) return 'discover_process_outputs';
   if (/\b(explain|why|how|help|status|what did)\b/.test(normalized)) return 'explain_context';
   return 'clarify';
 }
@@ -149,10 +157,15 @@ function resolveMatchResult(store, conversation, text) {
     .filter(Boolean);
   const explicit = results.find((result) => text.includes(result.id) || text.includes(result.streamId));
   if (explicit) return explicit;
-  const ordinal = text.match(/\b(first|second|third|1st|2nd|3rd)\b/i);
+  const ordinal = text.match(/\b(first|second|third|1st|2nd|3rd|option\s*[123])\b/i);
   if (ordinal) {
-    const index = { first: 0, '1st': 0, second: 1, '2nd': 1, third: 2, '3rd': 2 }[ordinal[1].toLowerCase()];
-    if (results[index]) return results[index];
+    const raw = ordinal[1].toLowerCase().replace(/\s+/g, ' ');
+    const index = {
+      first: 0, '1st': 0, 'option 1': 0,
+      second: 1, '2nd': 1, 'option 2': 1,
+      third: 2, '3rd': 2, 'option 3': 2
+    }[raw];
+    if (typeof index === 'number' && results[index]) return results[index];
   }
   return results.find((result) => result.status === 'compatible') || results[0] || null;
 }
