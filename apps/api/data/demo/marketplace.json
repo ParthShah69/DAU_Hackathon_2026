@@ -30,17 +30,26 @@
       "capabilities": ["ngo"],
       "synthetic": true,
       "status": "active"
-    }
+    },
+    { "id": "org-rivera", "name": "Rivera Foods & Beverages", "kind": "contributor", "capabilities": ["contributor"], "synthetic": true, "status": "active" }
+  ],
+  "organizationProfiles": [
+    { "id": "profile-carbonstone", "organizationId": "org-carbonstone", "data": { "organizationName": "CarbonStone Materials" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true },
+    { "id": "profile-greenbuild", "organizationId": "org-greenbuild", "data": { "organizationName": "GreenBuild Concrete" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true },
+    { "id": "profile-climateworks", "organizationId": "org-climateworks", "data": { "organizationName": "ClimateWorks Collective" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true },
+    { "id": "profile-rivera", "organizationId": "org-rivera", "data": { "organizationName": "Rivera Foods & Beverages" }, "verificationStatus": "verified", "updatedAt": "2026-09-01T00:00:00.000Z", "synthetic": true }
   ],
   "users": [
     { "id": "user-seller", "externalSubject": "demo-seller", "displayName": "Seller demo", "email": "seller@demo.carbonbridge.local" },
     { "id": "user-buyer", "externalSubject": "demo-buyer", "displayName": "Buyer demo", "email": "buyer@demo.carbonbridge.local" },
-    { "id": "user-reviewer", "externalSubject": "demo-reviewer", "displayName": "Reviewer demo", "email": "reviewer@demo.carbonbridge.local" }
+    { "id": "user-reviewer", "externalSubject": "demo-reviewer", "displayName": "Reviewer demo", "email": "reviewer@demo.carbonbridge.local" },
+    { "id": "user-contributor", "externalSubject": "demo-contributor", "displayName": "Contributor demo", "email": "contributor@demo.carbonbridge.local" }
   ],
   "memberships": [
     { "userId": "user-seller", "organizationId": "org-carbonstone", "roles": ["org_admin", "supplier_editor"] },
     { "userId": "user-buyer", "organizationId": "org-greenbuild", "roles": ["org_admin", "buyer_editor"] },
-    { "userId": "user-reviewer", "organizationId": "org-climateworks", "roles": ["org_admin", "ngo_editor", "reviewer"] }
+    { "userId": "user-reviewer", "organizationId": "org-climateworks", "roles": ["org_admin", "ngo_editor", "reviewer"] },
+    { "userId": "user-contributor", "organizationId": "org-rivera", "roles": ["org_admin", "contributor_editor"] }
   ],
   "sites": [
     { "id": "site-a", "organizationId": "org-carbonstone", "label": "CarbonStone capture site", "city": "Ahmedabad", "latitude": 23.0225, "longitude": 72.5714 },
@@ -161,5 +170,14 @@
       "status": "open",
       "synthetic": true
     }
+  ],
+  "negotiationThreads": [
+    { "id": "negotiation-greenbuild-stream-a", "listingId": "stream-a", "buyerOrganizationId": "org-greenbuild", "supplierOrganizationId": "org-carbonstone", "status": "in_negotiation", "summary": { "quantity": "80", "unit": "tonnes/month", "purity": "≥ 98.0% dry basis", "priceBasis": "₹2,120/t ex-works", "delivery": "Road tanker to Rajkot", "schedule": "October 2026" }, "createdAt": "2026-09-10T08:30:00.000Z", "updatedAt": "2026-09-12T09:20:00.000Z", "synthetic": true },
+    { "id": "negotiation-greenbuild-stream-d", "listingId": "stream-d", "buyerOrganizationId": "org-greenbuild", "supplierOrganizationId": "org-carbonstone", "status": "pending", "summary": { "quantity": "40", "unit": "tonnes/month", "purity": "≥ 96.0% dry basis", "priceBasis": "₹2,240/t delivered estimate", "delivery": "Buyer-arranged collection", "schedule": "October 2026" }, "createdAt": "2026-09-11T10:10:00.000Z", "updatedAt": "2026-09-11T10:10:00.000Z", "synthetic": true }
+  ],
+  "negotiationMessages": [
+    { "id": "neg-msg-001", "threadId": "negotiation-greenbuild-stream-a", "organizationId": "org-greenbuild", "kind": "offer", "offerStatus": "pending", "content": "We can take 80 tonnes per month for curing trials, subject to the latest moisture and CO analysis.", "createdAt": "2026-09-10T08:30:00.000Z" },
+    { "id": "neg-msg-002", "threadId": "negotiation-greenbuild-stream-a", "organizationId": "org-carbonstone", "kind": "counteroffer", "offerStatus": "countered", "content": "We can reserve 80 tonnes in October. Latest dry-basis report is available; propose a 20-tonne minimum tanker dispatch.", "createdAt": "2026-09-12T09:20:00.000Z" },
+    { "id": "neg-msg-003", "threadId": "negotiation-greenbuild-stream-d", "organizationId": "org-greenbuild", "kind": "offer", "offerStatus": "pending", "content": "Please confirm collection slot availability and whether the 96.5% stream can meet our curing specification.", "createdAt": "2026-09-11T10:10:00.000Z" }
   ]
 }

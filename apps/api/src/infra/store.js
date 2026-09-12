@@ -33,6 +33,11 @@ const COLLECTIONS = [
   'balanceRequests',
   'participations',
   'appreciations'
+  , 'organizationProfiles'
+  , 'verificationSubmissions'
+  , 'offers'
+  , 'negotiationThreads'
+  , 'negotiationMessages'
 ];
 
 function clone(value) {

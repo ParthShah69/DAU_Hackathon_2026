@@ -13,6 +13,8 @@ const { patchRequirement } = require('./domain/requirements');
 const { getRequest, listRequests, createSupplyRequest, acceptRequest, transitionRequest, decisionReceipt, alternativeBuyers, requestFromListing } = require('./domain/requests');
 const { register, login, logout, listDemoActors, sessionCookie, organizationKind } = require('./domain/accounts');
 const ngo = require('./domain/ngo');
+const onboarding = require('./domain/onboarding');
+const negotiations = require('./domain/negotiations');
 const {
   addParticipation,
   listParticipations: listExtensionParticipations,
@@ -295,6 +297,31 @@ function createApp({ store = new Store(), persistence = null } = {}) {
         return;
       }
 
+      if (request.method === 'GET' && path === '/api/v1/organization-profile') {
+        jsonResponse(response, 200, onboarding.getProfile(store, actor), requestId, request);
+        return;
+      }
+      if (request.method === 'PATCH' && path === '/api/v1/organization-profile') {
+        requireRole(actor, ['org_admin', 'supplier_editor', 'buyer_editor', 'ngo_editor', 'contributor_editor']);
+        jsonResponse(response, 200, onboarding.saveProfile(store, actor, await readJson(request)), requestId, request);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/organization-profile/submit') {
+        requireRole(actor, ['org_admin']);
+        jsonResponse(response, 200, onboarding.submitProfile(store, actor), requestId, request);
+        return;
+      }
+      if (request.method === 'GET' && path === '/api/v1/verification-queue') {
+        requireRole(actor, ['reviewer']);
+        jsonResponse(response, 200, { items: onboarding.verificationQueue(store) }, requestId, request);
+        return;
+      }
+      const verificationReviewMatch = path.match(/^\/api\/v1\/verification-queue\/([^/]+)\/review$/);
+      if (request.method === 'POST' && verificationReviewMatch) {
+        jsonResponse(response, 200, onboarding.reviewSubmission(store, actor, verificationReviewMatch[1], await readJson(request)), requestId, request);
+        return;
+      }
+
       if (request.method === 'GET' && path === '/api/v1/assistant/capabilities') {
         jsonResponse(response, 200, publicCapabilities(), requestId, request);
         return;
@@ -320,6 +347,22 @@ function createApp({ store = new Store(), persistence = null } = {}) {
           availability: { totalTonnes: supplyPeriods.reduce((sum, period) => sum + Number(period.totalTonnes || 0), 0), reservedTonnes: supplyPeriods.reduce((sum, period) => sum + Number(period.reservedTonnes || 0), 0) },
           source: store.seedSource
         }, requestId, request);
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/api/v1/negotiations') {
+        jsonResponse(response, 200, { items: negotiations.listThreads(store, actor) }, requestId, request);
+        return;
+      }
+      if (request.method === 'POST' && path === '/api/v1/negotiations') {
+        requireRole(actor, ['org_admin', 'buyer_editor']);
+        jsonResponse(response, 201, negotiations.createOffer(store, actor, await readJson(request)), requestId, request);
+        return;
+      }
+      const negotiationMessageMatch = path.match(/^\/api\/v1\/negotiations\/([^/]+)\/messages$/);
+      if (request.method === 'POST' && negotiationMessageMatch) {
+        requireRole(actor, ['org_admin', 'buyer_editor', 'supplier_editor']);
+        jsonResponse(response, 201, negotiations.addMessage(store, actor, negotiationMessageMatch[1], await readJson(request)), requestId, request);
         return;
       }
 

@@ -211,7 +211,7 @@ function applyContribution(store, participation, now) {
 }
 
 function createParticipation(store, { actor, payload, now = new Date() }) {
-  requireRole(actor, ['org_admin', 'supplier_editor', 'buyer_editor', 'ngo_editor']);
+  requireRole(actor, ['org_admin', 'supplier_editor', 'buyer_editor', 'ngo_editor', 'contributor_editor']);
   const project = getProjectRecord(store, requireValue(payload.projectId, 'projectId'));
   if (project.state !== 'published') throw new DomainError('NOT_FOUND', 'Project was not found', 404);
   const contributionKind = String(requireValue(payload.contributionKind, 'contributionKind'));

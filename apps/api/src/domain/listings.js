@@ -152,6 +152,8 @@ function publishListing(store, { listingId, actorOrganizationId, expectedVersion
   if (stream.organizationId !== actorOrganizationId) throw new DomainError('FORBIDDEN', 'Only the owning organization can publish this listing', 403);
   if (expectedVersion === undefined || Number(expectedVersion) !== Number(stream.version || 1)) throw new DomainError('VERSION_CONFLICT', 'Listing changed; refresh it before publishing', 409);
   if (stream.state === 'published') return stream;
+  const profile = store.findOne('organizationProfiles', (item) => item.organizationId === actorOrganizationId);
+  if (!profile || profile.verificationStatus !== 'verified') throw new DomainError('PUBLICATION_BLOCKED', 'Complete the organization profile and verification review before publishing', 422);
   const periods = store.findMany('supplyPeriods', (item) => item.streamId === stream.id);
   if (periods.length === 0) throw new DomainError('PUBLICATION_BLOCKED', 'Add at least one bounded supply period before publishing', 422);
   if (periods.some((period) => Number(period.totalTonnes) <= 0 || Number(period.totalTonnes) < Number(period.minimumOrderTonnes))) throw new DomainError('PUBLICATION_BLOCKED', 'Supply periods need positive capacity and a valid minimum order', 422);
